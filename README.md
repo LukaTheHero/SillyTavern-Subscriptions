@@ -9,7 +9,29 @@ relay key) for overflow when a subscription window is used up.
 This is the successor of the three separate plugins
 (SillyTavern-ClaudeSubscription, SillyTavern-CodexSubscription,
 SillyTavern-GeminiSubscription). One listener, one model list, one panel;
-pick the provider by picking the model.
+pick the provider by picking the model. You do not need all three
+subscriptions — whichever you are logged into on the SillyTavern machine
+shows up, the rest stay out of the way.
+
+## Quick start
+
+1. Server plugin, from your SillyTavern folder (the one with `server.js`):
+
+   ```bash
+   node plugins.js install https://github.com/LukaTheHero/SillyTavern-Subscriptions
+   cd plugins/SillyTavern-Subscriptions
+   npm install
+   ```
+
+2. Panel: in SillyTavern, **Extensions → Install extension**, paste the same
+   URL (this gives you the Update / Delete buttons).
+3. Log in to whichever you use, as the same OS user that runs SillyTavern:
+   `claude login` (Claude Pro/Max), `codex login` (ChatGPT Plus/Pro), or run
+   `agy` once (Google Antigravity).
+4. Restart SillyTavern, hard-refresh, open **Extensions → Subscriptions**,
+   press **Connect**, pick a model.
+
+Details, migration from the old plugins, and every setting: below.
 
 ## What you get
 
