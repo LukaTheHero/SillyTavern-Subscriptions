@@ -114,7 +114,7 @@ async function multiTurn(provider) {
     if (!res.ok) return { ok: false, detail: `HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`, ms };
     const r = await readSse(res);
     const repeatsPrefill = /next comes the/i.test(r.text);
-    const speaksForJim = /\bJim:/.test(r.text);
+    const speaksForJim = /\bTobias:/.test(r.text);
     return { ok: !r.error && r.text.length > 0 && !speaksForJim, detail: `${r.chunks} chunks, prefill-repeated=${repeatsPrefill}, speaks-for-user=${speaksForJim} :: ${JSON.stringify(r.text.slice(0, 200))}${r.error ? ' ERROR ' + r.error : ''}`, ms };
 }
 
