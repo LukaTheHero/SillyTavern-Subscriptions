@@ -6,7 +6,7 @@
 //   • Claude  — Anthropic Pro/Max via the Claude Agent SDK (claude login)
 //   • Codex   — ChatGPT Plus/Pro via the Codex CLI app-server (codex login)
 //   • Gemini  — Google Antigravity via the agy CLI (agy sign-in)
-// Each also has a pay-per-token "api" backend (LinkAPI or the vendor API)
+// Each also has a pay-per-token "api" backend (the vendor API or a compatible relay)
 // for overflow when a subscription window is exhausted.
 //
 // The chat endpoints run on a separate HTTP listener (default 127.0.0.1:8901)

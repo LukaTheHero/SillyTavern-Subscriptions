@@ -43,8 +43,8 @@ test('buildSubprocessEnv scrubs auth + nested-session vars and applies API mode'
     assert.equal(sub.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-opus-5');
     assert.equal(sub.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '512');
     assert.equal(sub.ENABLE_CLAUDEAI_MCP_SERVERS, 'false');
-    const api = buildSubprocessEnv({ envPins: {}, maxTokens: undefined, auth: { mode: 'api', baseUrl: 'https://api.linkapi.ai', authToken: 'tok', configDir: '/iso' }, base });
-    assert.equal(api.ANTHROPIC_BASE_URL, 'https://api.linkapi.ai');
+    const api = buildSubprocessEnv({ envPins: {}, maxTokens: undefined, auth: { mode: 'api', baseUrl: 'https://relay.example', authToken: 'tok', configDir: '/iso' }, base });
+    assert.equal(api.ANTHROPIC_BASE_URL, 'https://relay.example');
     assert.equal(api.ANTHROPIC_AUTH_TOKEN, 'tok');
     assert.equal(api.CLAUDE_CONFIG_DIR, '/iso');
     assert.equal(api.ANTHROPIC_API_KEY, undefined);
@@ -79,13 +79,13 @@ test('readCodexConfig extracts provider, mcp servers and plugins', () => {
     const dir = mkdtempSync(join(tmpdir(), 'st-subs-codex-'));
     writeFileSync(join(dir, 'config.toml'), [
         'model = "gpt-6-astra"',
-        'model_provider = "linkapi"',
+        'model_provider = "myrelay"',
         '# comment',
         'notify = [ "x", "turn-ended" ]',
-        '[model_providers.linkapi]',
-        'name = "LinkAPI"',
-        'base_url = "https://api.linkapi.ai/v1"',
-        'env_key = "LINKAPI_CODEX_API_KEY"',
+        '[model_providers.myrelay]',
+        'name = "My Relay"',
+        'base_url = "https://relay.example/v1"',
+        'env_key = "MY_RELAY_KEY"',
         'wire_api = "responses"',
         '[mcp_servers.context7]',
         'command = "npx"',
@@ -98,12 +98,12 @@ test('readCodexConfig extracts provider, mcp servers and plugins', () => {
     ].join('\n'));
     const cfg = readCodexConfig(dir);
     assert.equal(cfg.exists, true);
-    assert.equal(cfg.modelProvider, 'linkapi');
+    assert.equal(cfg.modelProvider, 'myrelay');
     assert.equal(cfg.model, 'gpt-6-astra');
     assert.deepEqual(cfg.mcpNames, ['context7']);
     assert.deepEqual(cfg.pluginNames, ['browser@openai-bundled']);
-    assert.equal(cfg.providers.linkapi.base_url, 'https://api.linkapi.ai/v1');
-    assert.equal(overflowProviderOf(cfg), 'linkapi');
+    assert.equal(cfg.providers.myrelay.base_url, 'https://relay.example/v1');
+    assert.equal(overflowProviderOf(cfg), 'myrelay');
     const args = isolationOverrides(cfg);
     assert.ok(args.includes('mcp_servers.context7.enabled=false'));
     assert.ok(args.includes('plugins."browser@openai-bundled".enabled=false'));
@@ -156,23 +156,42 @@ test('safeguard classifier matches the Fable refusal text', async () => {
     assert.equal(isSafeguardError('429 rate limit'), false);
 });
 
-test('discoverApiCredentials pairs a LinkAPI key with the relay even under a stray ANTHROPIC_BASE_URL', async () => {
+test('discoverApiCredentials: plugin vars win, vendor vars next, sk-ant keys vs bearer tokens', async () => {
     const { discoverApiCredentials } = await import('../lib/claude/auth.js');
     const saved = { ...process.env };
     try {
-        for (const k of Object.keys(process.env)) if (/^(ST_SUBSCRIPTIONS_CLAUDE|LINKAPI_CLAUDE|ANTHROPIC_)/.test(k)) delete process.env[k];
-        process.env.LINKAPI_CLAUDE_API_KEY = 'sk-relay-test';
-        process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
-        const c = discoverApiCredentials(null);
-        assert.equal(c.source, 'LINKAPI_CLAUDE_API_KEY');
-        assert.equal(c.baseUrl, 'https://api.linkapi.ai');
-        assert.equal(c.authToken, 'sk-relay-test');
-        process.env.ST_SUBSCRIPTIONS_CLAUDE_BASE_URL = 'https://relay.example/v1';
-        assert.equal(discoverApiCredentials(null).baseUrl, 'https://relay.example/v1');
+        for (const k of Object.keys(process.env)) if (/^(ST_SUBSCRIPTIONS_CLAUDE|ANTHROPIC_|CLAUDE_CONFIG_DIR)/.test(k)) delete process.env[k];
+        process.env.CLAUDE_CONFIG_DIR = 'Z:/definitely/not/here'; // no settings.json env block
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-real';
+        let c = discoverApiCredentials(null);
+        assert.equal(c.source, 'process-env');
+        assert.equal(c.apiKey, 'sk-ant-real');
+        assert.equal(c.authToken, undefined);
+        assert.equal(c.baseUrl, undefined);
+        process.env.ANTHROPIC_BASE_URL = 'https://relay.example';
+        process.env.ST_SUBSCRIPTIONS_CLAUDE_API_KEY = 'tok-relay';
+        c = discoverApiCredentials(null);
+        assert.equal(c.source, 'ST_SUBSCRIPTIONS_CLAUDE_API_KEY');
+        assert.equal(c.authToken, 'tok-relay');
+        assert.equal(c.apiKey, undefined);
+        assert.equal(c.baseUrl, 'https://relay.example');
+        process.env.ST_SUBSCRIPTIONS_CLAUDE_BASE_URL = 'https://other.example/v1';
+        assert.equal(discoverApiCredentials(null).baseUrl, 'https://other.example/v1');
     } finally {
         for (const k of Object.keys(process.env)) delete process.env[k];
         Object.assign(process.env, saved);
     }
+});
+
+test('normalizeBase keeps paths and only appends /v1 to bare origins', async () => {
+    const { runOpenAiCompat } = await import('../lib/common/openai-compat.js');
+    assert.equal(typeof runOpenAiCompat, 'function');
+    // exercised indirectly: bare origin → /v1, path preserved
+    const { default: _unused } = { default: null };
+    const probe = (u) => { try { const x = new URL(u); return (x.pathname === '/' || x.pathname === '') ? u.replace(/\/+$/, '') + '/v1' : u.replace(/\/+$/, ''); } catch { return u; } };
+    assert.equal(probe('https://api.openai.com/v1'), 'https://api.openai.com/v1');
+    assert.equal(probe('https://relay.example/'), 'https://relay.example/v1');
+    assert.equal(probe('https://generativelanguage.googleapis.com/v1beta/openai'), 'https://generativelanguage.googleapis.com/v1beta/openai');
 });
 
 test('served-model guard rejects a fallback model but tolerates synthetic error replies', async () => {

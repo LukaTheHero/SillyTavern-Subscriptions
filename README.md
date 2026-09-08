@@ -3,8 +3,8 @@
 Use the AI subscriptions you already pay for in SillyTavern — **Claude
 Pro/Max**, **ChatGPT Plus/Pro (Codex)** and **Google Antigravity (Gemini)** —
 through one server plugin and one panel, instead of per-token API keys. Each
-provider also has a pay-per-token "API" backend (your own key, or a LinkAPI
-relay key) for overflow when a subscription window is used up.
+provider also has a pay-per-token "API" backend (your own vendor key, or any
+compatible relay via a base URL) for overflow when a subscription window is used up.
 
 This is the successor of the three separate plugins
 (SillyTavern-ClaudeSubscription, SillyTavern-CodexSubscription,
@@ -51,8 +51,8 @@ Details, migration from the old plugins, and every setting: below.
 - **Gemini** — Antigravity's model list (Gemini 3.8/3.7/3.6 Flash, 3.1 Pro,
   each with High/Medium/Low effort), long chats piped safely to the CLI.
 - **Overflow** — per provider: *Auto* (subscription first, API key when the
-  window is exhausted), *Subscription only*, or *API key only*. Works with the
-  LinkAPI relay keys and toggles you may already have.
+  window is exhausted), *Subscription only*, or *API key only*. Any
+  Anthropic/OpenAI-compatible relay works by setting a base URL.
 - **Stop sequences enforced server-side** (`\n{{user}}:` guards work on every
   backend), thinking displayed in SillyTavern's native reasoning box, clear
   error messages (e.g. "Codex not logged in — run `codex login`"), a status
@@ -139,17 +139,17 @@ Settings in the panel apply from the next message — no reconnect needed.
 | Section | Setting | Notes |
 | --- | --- | --- |
 | Global | Show reasoning | Display only. Streams thinking summaries into ST's "thoughts" box (enable "Show model thoughts" in ST too). Claude and Codex stream summaries; Antigravity's CLI never exposes Gemini thoughts. |
-| Claude | Backend | Auto / Subscription / API key. API keys come from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `LINKAPI_CLAUDE_API_KEY`, or `~/.claude/settings.json`'s env block (the LinkAPI toggle). Your OAuth login is never modified. |
+| Claude | Backend | Auto / Subscription / API key. API keys come from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ANTHROPIC_BASE_URL` or `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` points at a relay. Your OAuth login is never modified. |
 | | Reasoning effort | `low … max`. Auto = model default. |
 | | Thinking mode | Adaptive / Always on / Off. Fable and Opus 4.7+ always think. |
 | | Session resume | On (recommended): real multi-turn session + prompt caching. |
 | | Identity mode | Prepends the Claude Code preamble (self-identification) — off for roleplay. |
 | | Fast mode | Requests `/fast`; the CLI decides, the server log shows the state. |
-| Codex | Backend | Auto follows the Codex CLI config (your LinkAPI toggle included); Subscription forces the ChatGPT login; API uses `LINKAPI_CODEX_API_KEY` / `OPENAI_API_KEY` directly. |
+| Codex | Backend | Auto follows the Codex CLI config (including any provider you switched it to); Subscription forces the ChatGPT login; API uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
 | | Reasoning effort | Clamped to the model's supported levels. |
 | | Service tier | Standard / Fast (priority) / Ultrafast where offered. |
 | | Reasoning summary | auto / concise / detailed / none. |
-| Gemini | Backend | Auto / Antigravity CLI / API key (`LINKAPI_ANTIGRAVITY_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`). |
+| Gemini | Backend | Auto / Antigravity CLI / API key (`GEMINI_API_KEY`, optionally `GOOGLE_GEMINI_BASE_URL` for a relay). |
 | | Reasoning effort | Overrides the `-high/-medium/-low` suffix of the model id. |
 | Status & quota | Refresh | Per-provider: CLI found, login state, routing (subscription vs relay), key availability, Claude 5h/7d windows, Codex rate limits. |
 
@@ -191,10 +191,9 @@ Direct API users can send the `subscriptions` object shown in
 | `ST_SUBSCRIPTIONS_AGY_PATH` | – | Explicit `agy` executable |
 | `ST_SUBSCRIPTIONS_GEMINI_API_KEY` / `_BASE_URL` | – | Gemini API backend |
 
-The LinkAPI overflow variables (`LINKAPI_CLAUDE_API_KEY`,
-`LINKAPI_CODEX_API_KEY`, `LINKAPI_ANTIGRAVITY_API_KEY`, `GEMINI_API_KEY`,
-`GOOGLE_GEMINI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`) are picked up
-automatically. Changing the port? Update **Listener base URL** in the panel.
+The vendors' own variables (`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` /
+`ANTHROPIC_BASE_URL`, `OPENAI_API_KEY` / `OPENAI_BASE_URL`, `GEMINI_API_KEY` /
+`GOOGLE_GEMINI_BASE_URL`) are picked up automatically. Changing the port? Update **Listener base URL** in the panel.
 
 ## Linux & Termux
 

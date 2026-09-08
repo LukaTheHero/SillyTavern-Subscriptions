@@ -273,7 +273,7 @@
                 sec.append(row('Claude CLI', c.cli?.path ? `${c.cli.source}` : 'not found', c.cli?.path ? 'ok' : 'err'));
                 const cred = c.credential ?? {};
                 sec.append(row('Login', cred.present ? `${cred.subscriptionType ?? 'unknown'}${cred.rateLimitTier ? ` (${cred.rateLimitTier})` : ''}${cred.expired ? ' · token expired (auto-refresh on next chat)' : ''}` : 'not logged in (claude login)', cred.present ? (cred.expired ? 'warn' : 'ok') : 'err'));
-                sec.append(row('API/LinkAPI key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
+                sec.append(row('API key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
                 if (c.message) sec.append(row('Note', c.message, 'warn'));
                 const q = quota?.claude;
                 if (q?.ok && q.windows?.length) sec.append(quotaRows(q.windows));
@@ -291,7 +291,7 @@
                 const login = c.login ?? {};
                 sec.append(row('ChatGPT login', login.loggedIn ? `${login.mode}${c.account?.planType ? ` · ${c.account.planType}` : ''}` : 'not logged in (codex login)', login.loggedIn ? 'ok' : (c.config?.overflowProvider ? 'warn' : 'err')));
                 sec.append(row('Routing', c.config?.modelProvider && c.config.modelProvider !== 'openai' ? `relay provider "${c.config.modelProvider}" (overflow ON)` : 'openai (subscription)', c.config?.modelProvider && c.config.modelProvider !== 'openai' ? 'warn' : 'ok'));
-                sec.append(row('API/LinkAPI key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
+                sec.append(row('API key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
                 sec.append(row('Isolation', `${c.config?.mcpServersDisabled ?? 0} MCP servers / ${c.config?.pluginsDisabled ?? 0} plugins disabled for roleplay`));
                 if (c.message) sec.append(row('Note', c.message, 'warn'));
                 const rl = quota?.codex ?? c.rateLimits;
@@ -307,7 +307,7 @@
                 sec.append(el('b', null, 'Gemini (Google Antigravity)'));
                 sec.append(row('Antigravity CLI', c.cli?.found ? `v${c.cli.version ?? '?'} (${c.cli.source})` : 'not found', c.cli?.found ? 'ok' : 'err'));
                 sec.append(row('Routing', c.settings?.routing ?? 'unknown', c.settings?.overflowOn ? 'warn' : 'ok'));
-                sec.append(row('API/LinkAPI key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
+                sec.append(row('API key', c.api?.available ? `${c.api.source} → ${c.api.baseUrl}` : 'none', c.api?.available ? 'ok' : undefined));
                 if (c.message) sec.append(row('Note', c.message, 'warn'));
                 box.append(sec);
                 setBadge('gemini', c.ok ? 'ok' : 'err', c.ok ? 'ready' : 'unavailable');
@@ -372,7 +372,7 @@
     const BACKEND_LABELS = {
         auto: 'Auto (subscription first, API overflow when limits hit)',
         subscription: 'Subscription only (CLI login)',
-        api: 'API key / LinkAPI only (pay per token)',
+        api: 'API key only (pay per token)',
     };
 
     function addExtensionSettings(settings) {
@@ -441,7 +441,7 @@
         {
             const [l, s] = makeSelectRow('Backend', 'stSubsClaudeBackend', BACKENDS, settings.claude.backend, (v) => { settings.claude.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, BACKEND_LABELS);
             claude.append(l, s);
-            claude.append(makeHelp('Subscription = the `claude login` on the SillyTavern host. API = ANTHROPIC key or your LinkAPI relay key (from the Custom API key field, LINKAPI_CLAUDE_API_KEY, or ~/.claude/settings.json). Auto uses the subscription and switches to the API key for a request when the 5-hour/weekly window is exhausted.'));
+            claude.append(makeHelp('Subscription = the `claude login` on the SillyTavern host. API = an Anthropic key or a relay token, from the Custom API key field, ST_SUBSCRIPTIONS_CLAUDE_API_KEY, ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, or ~/.claude/settings.json (set ANTHROPIC_BASE_URL or ST_SUBSCRIPTIONS_CLAUDE_BASE_URL for a relay). Auto uses the subscription and switches to the API key for a request when the 5-hour/weekly window is exhausted.'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsClaudeEffort', CLAUDE_EFFORTS, settings.claude.effort, (v) => { settings.claude.effort = CLAUDE_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (model default)', xhigh: 'xhigh (deeper)', max: 'max (deepest)' });
             claude.append(el2, es);
             claude.append(makeHelp('How hard Claude reasons before replying — low is fastest, max thinks longest. Higher = better consistency on complex scenes, slower replies, more quota.'));
@@ -459,9 +459,9 @@
         // ── Codex ──
         const codex = makeDrawer(content, 'Codex — ChatGPT Plus/Pro', 'codex');
         {
-            const [l, s] = makeSelectRow('Backend', 'stSubsCodexBackend', BACKENDS, settings.codex.backend, (v) => { settings.codex.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (follow the Codex CLI config — respects your LinkAPI toggle)', subscription: 'Subscription only (ChatGPT login, provider openai)', api: 'API key / LinkAPI only (pay per token)' });
+            const [l, s] = makeSelectRow('Backend', 'stSubsCodexBackend', BACKENDS, settings.codex.backend, (v) => { settings.codex.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (follow the Codex CLI config, including any provider you switched it to)', subscription: 'Subscription only (ChatGPT login, provider openai)', api: 'API key only (pay per token)' });
             codex.append(l, s);
-            codex.append(makeHelp('Runs through the Codex CLI\'s app-server with a clean system prompt (no coding preamble, no MCP servers, no tools). Subscription needs `codex login` on the SillyTavern host. API uses LINKAPI_CODEX_API_KEY / OPENAI_API_KEY (or the Custom API key field) directly.'));
+            codex.append(makeHelp('Runs through the Codex CLI\'s app-server with a clean system prompt (no coding preamble, no MCP servers, no tools). Subscription needs `codex login` on the SillyTavern host. API uses OPENAI_API_KEY (+ OPENAI_BASE_URL for a compatible relay) or the Custom API key field directly.'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsCodexEffort', CODEX_EFFORTS, settings.codex.effort, (v) => { settings.codex.effort = CODEX_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (model default)', ultra: 'ultra (GPT-6 Astra)' });
             codex.append(el2, es);
             codex.append(makeHelp('Clamped to what the chosen model supports (the model list is read live from your account).'));
@@ -475,9 +475,9 @@
         // ── Gemini ──
         const gemini = makeDrawer(content, 'Gemini — Google Antigravity', 'gemini');
         {
-            const [l, s] = makeSelectRow('Backend', 'stSubsGeminiBackend', BACKENDS, settings.gemini.backend, (v) => { settings.gemini.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (agy when installed, else API key)', subscription: 'Antigravity CLI only (agy sign-in / its own toggle)', api: 'API key / LinkAPI only (pay per token)' });
+            const [l, s] = makeSelectRow('Backend', 'stSubsGeminiBackend', BACKENDS, settings.gemini.backend, (v) => { settings.gemini.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (agy when installed, else API key)', subscription: 'Antigravity CLI only (agy sign-in / its own toggle)', api: 'API key only (pay per token)' });
             gemini.append(l, s);
-            gemini.append(makeHelp('The agy CLI bills whatever it is signed in to (your Google account, or LinkAPI when its overflow toggle is ON). API sends the chat straight to GOOGLE_GEMINI_BASE_URL with GEMINI_API_KEY / LINKAPI_ANTIGRAVITY_API_KEY.'));
+            gemini.append(makeHelp('The agy CLI bills whatever it is signed in to. API sends the chat straight to Google\'s OpenAI-compatible Gemini endpoint with GEMINI_API_KEY (or to GOOGLE_GEMINI_BASE_URL if you point it at a compatible relay).'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsGeminiEffort', GEMINI_EFFORTS, settings.gemini.effort, (v) => { settings.gemini.effort = GEMINI_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (from the model name, e.g. …-high)', low: 'Low (fastest)', medium: 'Medium', high: 'High (deepest)' });
             gemini.append(el2, es);
             gemini.append(makeHelp('Antigravity encodes effort in the model id (gemini-3.8-flash-high). Setting it here overrides that suffix.'));

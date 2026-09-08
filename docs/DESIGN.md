@@ -42,8 +42,8 @@ migration. Precedence: unified namespace > legacy namespace > OpenAI
 | Provider | `subscription` | `api` | `auto` |
 | --- | --- | --- | --- |
 | Claude | Agent SDK with the OAuth login (`claude login`) | SDK with `ANTHROPIC_BASE_URL` + key/token and `CLAUDE_CONFIG_DIR` pointed at an empty plugin dir so the OAuth login is invisible (no credential stashing) | subscription; a quota-exhausted reply retries the same request on the API key when one exists |
-| Codex | app-server, `modelProvider: "openai"` | direct OpenAI-compatible HTTP when a key exists (clean `messages[]`), else app-server with the overflow provider from `config.toml` | app-server exactly as the CLI is configured (so the LinkAPI toggle is honoured); direct HTTP when no CLI but a key |
-| Gemini | `agy` print mode | direct HTTP to `GOOGLE_GEMINI_BASE_URL` (default LinkAPI) | agy when installed, else key |
+| Codex | app-server, `modelProvider: "openai"` | direct OpenAI-compatible HTTP when a key exists (clean `messages[]`), else app-server with the non-OpenAI provider from `config.toml` | app-server exactly as the CLI is configured (so a provider switch made in the CLI is honoured); direct HTTP when no CLI but a key |
+| Gemini | `agy` print mode | direct HTTP with `GEMINI_API_KEY` to `GOOGLE_GEMINI_BASE_URL` (default: Google's OpenAI-compatible endpoint) | agy when installed, else key |
 
 ## Claude specifics (carried over + fixed)
 
