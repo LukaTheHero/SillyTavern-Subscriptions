@@ -115,7 +115,16 @@ function installUiExtension() {
         }
         warnAboutLegacyInstalls(stRoot);
 
-        if (existsSync(join(thirdParty, DIALOG_CLONE_DIR_NAME, 'manifest.json'))) {
+        // Installed through SillyTavern's "Install extension" dialog? That clone
+        // is git-managed by ST (update/remove buttons work) — leave it alone.
+        // Global installs land in third-party/, per-user ones in data/<user>/extensions/.
+        const dialogClones = [join(thirdParty, DIALOG_CLONE_DIR_NAME)];
+        try {
+            for (const user of readdirSync(join(stRoot, 'data'))) {
+                dialogClones.push(join(stRoot, 'data', user, 'extensions', DIALOG_CLONE_DIR_NAME));
+            }
+        } catch { /* no data dir */ }
+        if (dialogClones.some((d) => existsSync(join(d, 'manifest.json')))) {
             console.log(`[${info.id}] UI extension already installed via SillyTavern's extension installer — auto-install skipped`);
             return;
         }

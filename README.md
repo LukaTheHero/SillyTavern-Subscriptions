@@ -52,7 +52,13 @@ You only need the providers you want. SillyTavern `config.yaml` must have
 
 ## Install
 
-From your SillyTavern directory (the one containing `server.js`):
+The repo is two things at once: the **server plugin** (the proxy) and the
+**"Subscriptions" panel** (a normal UI extension, `manifest.json` at the
+root). Install both from GitHub so SillyTavern's own buttons can update and
+remove them later.
+
+**1. Server plugin** — from your SillyTavern directory (the one containing
+`server.js`):
 
 ```bash
 node plugins.js install https://github.com/LukaTheHero/SillyTavern-Subscriptions
@@ -61,29 +67,40 @@ npm install
 ```
 
 (Linux/macOS/Termux: `bash plugins/SillyTavern-Subscriptions/install.sh` does
-the `npm install` and prints a doctor report.)
+the `npm install` and prints a doctor report.) SillyTavern git-pulls server
+plugins on every boot (`enableServerPluginsAutoUpdate`), or run
+`node plugins.js update`; after an update that changes dependencies run
+`npm install` again.
+
+**2. Panel** — in SillyTavern: **Extensions → Install extension**, paste
+
+```
+https://github.com/LukaTheHero/SillyTavern-Subscriptions
+```
+
+The panel then shows up in **Manage extensions** with its own Update and
+Delete buttons. (If you skip this step the server plugin drops a copy of the
+panel into `third-party/SillyTavern-Subscriptions-UI` on startup; that copy has
+no update button, which is why the dialog install is recommended. The server
+plugin stands down automatically when it sees the dialog-installed clone.)
 
 **Migrating from the old plugins:** remove `plugins/SillyTavern-ClaudeSubscription`
-(it uses the same port 8901), and delete the old UI extensions from
-`public/scripts/extensions/third-party/` — `SillyTavern-ClaudeMax`,
-`SillyTavern-CodexMax`, `SillyTavern-GeminiAntigravity` and any
-`SillyTavern-*Subscription` clones installed through the extension dialog. The
-new panel imports your old effort/thinking settings on first load.
+(it uses the same port 8901), and delete the old panels in **Manage
+extensions** — `SillyTavern-ClaudeSubscription`, `SillyTavern-CodexSubscription`,
+`SillyTavern-GeminiSubscription`, plus any `SillyTavern-ClaudeMax` /
+`SillyTavern-CodexMax` / `SillyTavern-GeminiAntigravity` folders in
+`public/scripts/extensions/third-party/`. The new panel imports your old
+effort/thinking settings on first load.
 
 Restart SillyTavern. The log should show:
 
 ```
-[subscriptions] installed UI extension v3.0.0 at public/scripts/extensions/third-party/SillyTavern-Subscriptions-UI
+[subscriptions] UI extension already installed via SillyTavern's extension installer — auto-install skipped
 [subscriptions] standalone listener: http://127.0.0.1:8901/v1 (per-provider: /claude/v1, /codex/v1, /gemini/v1)
 [subscriptions] initialised — endpoint http://127.0.0.1:8901/v1
 ```
 
 Hard-refresh the browser (Ctrl+F5) after the first install.
-
-> The repo doubles as a regular UI extension (`manifest.json` at the root), so
-> the panel can also be installed from **Extensions → Install extension** with
-> the same URL. That installs only the panel — the server plugin above is what
-> actually talks to the subscriptions.
 
 ## Connect
 
