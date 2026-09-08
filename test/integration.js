@@ -74,7 +74,7 @@ async function chat(provider, { stream, stop }) {
             { role: 'system', content: 'You are Captain Redbeard, a pirate in a text roleplay. Stay in character. Keep replies under 40 words.' },
             { role: 'user', content: 'Ahoy! Tell me in one sentence what you think of the sea, then stop.' },
         ],
-        subscriptions: { show_reasoning: true, [provider]: { backend: 'auto' } },
+        subscriptions: { show_reasoning: true, [provider]: { backend: process.env.BACKEND ?? 'auto' } },
     };
     if (stop) body.stop = stop;
     const t0 = Date.now();
@@ -106,7 +106,7 @@ async function multiTurn(provider) {
             { role: 'user', content: 'Tobias: Rye, you said rye. Three scoops it is. What goes in next?' },
             { role: 'assistant', content: 'Marta: Good memory. Next comes the' },
         ],
-        subscriptions: { show_reasoning: false, [provider]: { backend: 'auto' } },
+        subscriptions: { show_reasoning: false, [provider]: { backend: process.env.BACKEND ?? 'auto' } },
     };
     const t0 = Date.now();
     const res = await fetch(`${BASE}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

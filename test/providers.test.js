@@ -174,3 +174,12 @@ test('discoverApiCredentials pairs a LinkAPI key with the relay even under a str
         Object.assign(process.env, saved);
     }
 });
+
+test('served-model guard rejects a fallback model but tolerates synthetic error replies', async () => {
+    const { assertServedModel } = await import('../lib/claude/chat.js');
+    assert.doesNotThrow(() => assertServedModel('fable', 'claude-fable-5-1', 'claude-fable-5-1'));
+    assert.doesNotThrow(() => assertServedModel('fable', '<synthetic>', 'claude-fable-5-1'));
+    assert.doesNotThrow(() => assertServedModel('fable', undefined, 'claude-fable-5-1'));
+    assert.doesNotThrow(() => assertServedModel('opus', 'claude-sonnet-4-6', 'claude-opus-5'));
+    assert.throws(() => assertServedModel('fable', 'claude-opus-4-6', 'claude-fable-5-1'), /Model substitution refused/);
+});

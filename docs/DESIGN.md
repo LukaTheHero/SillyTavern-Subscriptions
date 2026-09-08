@@ -57,6 +57,14 @@ migration. Precedence: unified namespace > legacy namespace > OpenAI
   synthetic text *is* the error, classified like any other.
 * `rate_limit_event` stream messages feed the quota meter for free (the OAuth
   usage endpoint remains the on-demand source).
+* **Refusals are final.** A Fable safeguard refusal is returned as an error and
+  the request is never re-sent or moved to another model; the served-model
+  guard (checked on init, on the stream's `message_start`, and on every
+  assistant message) also rejects any CLI-side fallback to Opus before a token
+  is emitted. The user decides: reword, step back, or pick Opus explicitly.
+  The prefill wording was changed to the plain "[Continue your last message…]"
+  form because Fable's classifier flagged the old "reply as if you began
+  with…" template on resumed sessions.
 * The subprocess env scrubs `CLAUDECODE`/`CLAUDE_CODE_*` so SillyTavern started
   from inside a Claude Code terminal still works.
 * Subprocess `cwd` must be a real path: spawning from inside the Claude desktop
