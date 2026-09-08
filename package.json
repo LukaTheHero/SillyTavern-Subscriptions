@@ -1,0 +1,21 @@
+{
+  "name": "sillytavern-subscriptions",
+  "version": "3.0.0",
+  "description": "SillyTavern Server Plugin — one OpenAI-compatible proxy for your Claude Max, ChatGPT/Codex and Google Antigravity (Gemini) subscriptions. Pick the provider and model from inside SillyTavern.",
+  "main": "plugin.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "doctor": "node scripts/doctor.js",
+    "integration": "node test/integration.js"
+  },
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.263",
+    "express": "^4.21.0"
+  }
+}

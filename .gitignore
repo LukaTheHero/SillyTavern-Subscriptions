@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+*.log
+.env
+.DS_Store
+.vscode/
+.idea/
+.scratch-cwd/
+.runtime/

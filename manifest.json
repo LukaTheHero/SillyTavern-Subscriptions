@@ -1,0 +1,12 @@
+{
+    "display_name": "Subscriptions",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "LukaTheHero",
+    "version": "3.0.0",
+    "homePage": "https://github.com/LukaTheHero/SillyTavern-Subscriptions",
+    "auto_update": false
+}
