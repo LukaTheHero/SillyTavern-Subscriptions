@@ -155,3 +155,22 @@ test('safeguard classifier matches the Fable refusal text', async () => {
     assert.equal(isSafeguardError("API Error: Fable 5.1's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."), true);
     assert.equal(isSafeguardError('429 rate limit'), false);
 });
+
+test('discoverApiCredentials pairs a LinkAPI key with the relay even under a stray ANTHROPIC_BASE_URL', async () => {
+    const { discoverApiCredentials } = await import('../lib/claude/auth.js');
+    const saved = { ...process.env };
+    try {
+        for (const k of Object.keys(process.env)) if (/^(ST_SUBSCRIPTIONS_CLAUDE|LINKAPI_CLAUDE|ANTHROPIC_)/.test(k)) delete process.env[k];
+        process.env.LINKAPI_CLAUDE_API_KEY = 'sk-relay-test';
+        process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+        const c = discoverApiCredentials(null);
+        assert.equal(c.source, 'LINKAPI_CLAUDE_API_KEY');
+        assert.equal(c.baseUrl, 'https://api.linkapi.ai');
+        assert.equal(c.authToken, 'sk-relay-test');
+        process.env.ST_SUBSCRIPTIONS_CLAUDE_BASE_URL = 'https://relay.example/v1';
+        assert.equal(discoverApiCredentials(null).baseUrl, 'https://relay.example/v1');
+    } finally {
+        for (const k of Object.keys(process.env)) delete process.env[k];
+        Object.assign(process.env, saved);
+    }
+});
