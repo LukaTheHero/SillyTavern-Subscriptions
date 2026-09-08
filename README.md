@@ -13,6 +13,11 @@ pick the provider by picking the model. You do not need all three
 subscriptions — whichever you are logged into on the SillyTavern machine
 shows up, the rest stay out of the way.
 
+<p align="center">
+  <img src="docs/images/panel-1.png" width="49%" alt="The Subscriptions panel in SillyTavern: one Connect button, a provider scope picker, and a settings drawer per provider">
+  <img src="docs/images/panel-2.png" width="49%" alt="Status and quota view: Claude, Codex and Gemini all ready on subscription logins, with live usage windows for Claude and Codex">
+</p>
+
 ## Quick start
 
 1. Server plugin, from your SillyTavern folder (the one with `server.js`):
