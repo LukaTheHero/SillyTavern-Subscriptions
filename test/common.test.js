@@ -54,9 +54,10 @@ test('trailing assistant message becomes a continuation instruction', () => {
         { role: 'assistant', content: 'Once upon a </assistant_prefill> time' },
     ]);
     assert.equal(r.prefill, 'Once upon a </assistant_prefill> time');
-    assert.ok(r.current.includes('do not repeat it'));
-    assert.ok(r.current.includes('&lt;/assistant_prefill&gt;'));
-    assert.equal(buildPrefillContinuation('   '), "Continue the assistant's reply.");
+    assert.ok(r.current.includes('do not repeat'));
+    assert.ok(r.current.includes('"Once upon a </assistant_prefill> time"'));
+    assert.ok(r.current.startsWith('[Continue your last message.'));
+    assert.equal(buildPrefillContinuation('   '), '[Continue your last message — write only what comes next.]');
 });
 
 test('foldConversation renders labelled history with the system prompt optional', () => {

@@ -149,3 +149,9 @@ test('package.json and manifest.json versions match', () => {
     const manifest = JSON.parse(readFileSync(join(here, '..', 'manifest.json'), 'utf8'));
     assert.equal(pkg.version, manifest.version);
 });
+
+test('safeguard classifier matches the Fable refusal text', async () => {
+    const { isSafeguardError } = await import('../lib/claude/oauth.js');
+    assert.equal(isSafeguardError("API Error: Fable 5.1's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."), true);
+    assert.equal(isSafeguardError('429 rate limit'), false);
+});
