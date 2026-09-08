@@ -202,3 +202,24 @@ test('served-model guard rejects a fallback model but tolerates synthetic error 
     assert.doesNotThrow(() => assertServedModel('opus', 'claude-sonnet-4-6', 'claude-opus-5'));
     assert.throws(() => assertServedModel('fable', 'claude-opus-4-6', 'claude-fable-5-1'), /Model substitution refused/);
 });
+
+test('chooseClaudeAuth auto: key is used outright when no subscription login exists', async () => {
+    const { chooseClaudeAuth } = await import('../lib/claude/auth.js');
+    const saved = { ...process.env };
+    try {
+        for (const k of Object.keys(process.env)) if (/^(ST_SUBSCRIPTIONS_CLAUDE|ANTHROPIC_|CLAUDE_CONFIG_DIR)/.test(k)) delete process.env[k];
+        process.env.CLAUDE_CONFIG_DIR = 'Z:/definitely/not/here'; // no .credentials.json → not logged in
+        assert.equal(chooseClaudeAuth('auto', null).auth.mode, 'subscription');
+        process.env.ANTHROPIC_AUTH_TOKEN = 'tok-relay';
+        process.env.ANTHROPIC_BASE_URL = 'https://relay.example';
+        const pick = chooseClaudeAuth('auto', null);
+        assert.equal(pick.auth.mode, 'api');
+        assert.equal(pick.auth.authToken, 'tok-relay');
+        assert.equal(pick.fallback, null);
+        assert.ok(pick.chosen.includes('no subscription login'));
+        assert.equal(chooseClaudeAuth('subscription', null).auth.mode, 'subscription');
+    } finally {
+        for (const k of Object.keys(process.env)) delete process.env[k];
+        Object.assign(process.env, saved);
+    }
+});
