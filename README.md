@@ -55,8 +55,9 @@ Details, migration from the old plugins, and every setting: below.
   prompt, no MCP servers/plugins/tools touched, nothing written to disk.
 - **Gemini** — Antigravity's model list (Gemini 3.8/3.7/3.6 Flash, 3.1 Pro,
   each with High/Medium/Low effort), long chats piped safely to the CLI.
-- **Overflow** — per provider: *Auto* (subscription first, API key when the
-  window is exhausted), *Subscription only*, or *API key only*. Any
+- **Subscription only by default.** Nothing but your logins is ever billed
+  unless you opt in: per provider you can switch to *Auto* (subscription
+  first, your API key when the window is exhausted) or *API key only*. Any
   Anthropic/OpenAI-compatible relay works by setting a base URL.
 - **Stop sequences enforced server-side** (`\n{{user}}:` guards work on every
   backend), thinking displayed in SillyTavern's native reasoning box, clear
@@ -144,17 +145,17 @@ Settings in the panel apply from the next message — no reconnect needed.
 | Section | Setting | Notes |
 | --- | --- | --- |
 | Global | Show reasoning | Display only. Streams thinking summaries into ST's "thoughts" box (enable "Show model thoughts" in ST too). Claude and Codex stream summaries; Antigravity's CLI never exposes Gemini thoughts. |
-| Claude | Backend | Auto / Subscription / API key. API keys come from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ANTHROPIC_BASE_URL` or `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` points at a relay. Your OAuth login is never modified. |
+| Claude | Backend | **Subscription only (default)** / Auto / API key. API keys come from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ANTHROPIC_BASE_URL` or `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` points at a relay. Your OAuth login is never modified. |
 | | Reasoning effort | `low … max`. Auto = model default. |
 | | Thinking mode | Adaptive / Always on / Off. Fable and Opus 4.7+ always think. |
 | | Session resume | On (recommended): real multi-turn session + prompt caching. |
 | | Identity mode | Prepends the Claude Code preamble (self-identification) — off for roleplay. |
 | | Fast mode | Requests `/fast`; the CLI decides, the server log shows the state. |
-| Codex | Backend | Auto follows the Codex CLI config (including any provider you switched it to); Subscription forces the ChatGPT login; API uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
+| Codex | Backend | **Subscription only (default)** forces the ChatGPT login; Auto follows the Codex CLI config (including any provider you switched it to); API uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
 | | Reasoning effort | Clamped to the model's supported levels. |
 | | Service tier | Standard / Fast (priority) / Ultrafast where offered. |
 | | Reasoning summary | auto / concise / detailed / none. |
-| Gemini | Backend | Auto / Antigravity CLI / API key (`GEMINI_API_KEY`, optionally `GOOGLE_GEMINI_BASE_URL` for a relay). |
+| Gemini | Backend | **Antigravity CLI only (default)** / Auto / API key (`GEMINI_API_KEY`, optionally `GOOGLE_GEMINI_BASE_URL` for a relay). |
 | | Reasoning effort | Overrides the `-high/-medium/-low` suffix of the model id. |
 | Status & quota | Refresh | Per-provider: CLI found, login state, routing (subscription vs relay), key availability, Claude 5h/7d windows, Codex rate limits. |
 

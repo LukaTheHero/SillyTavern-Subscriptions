@@ -7,14 +7,14 @@ test('defaults when nothing is sent', () => {
     const s = extractRequestSettings({});
     assert.equal(s.provider, undefined);
     assert.equal(s.showReasoning, true);
-    assert.equal(s.claude.backend, 'auto');
+    assert.equal(s.claude.backend, 'subscription');
     assert.equal(s.claude.thinking, 'adaptive');
     assert.equal(s.claude.useResume, true);
     assert.equal(s.claude.fastMode, false);
-    assert.equal(s.codex.backend, 'auto');
+    assert.equal(s.codex.backend, 'subscription');
     assert.equal(s.codex.serviceTier, 'standard');
     assert.equal(s.codex.reasoningSummary, 'auto');
-    assert.equal(s.gemini.backend, 'auto');
+    assert.equal(s.gemini.backend, 'subscription');
     assert.deepEqual(s.stops, []);
 });
 
@@ -81,6 +81,6 @@ test('invalid values fall back instead of erroring', () => {
     assert.equal(s.provider, undefined);
     assert.equal(s.claude.effort, undefined);
     assert.equal(s.claude.thinking, 'adaptive');
-    assert.equal(s.claude.backend, 'auto');
+    assert.equal(s.claude.backend, 'subscription');
     assert.equal(s.codex.serviceTier, 'standard');
 });

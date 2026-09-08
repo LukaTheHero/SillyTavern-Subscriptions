@@ -1,6 +1,6 @@
 {
   "name": "sillytavern-subscriptions",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "SillyTavern Server Plugin — one OpenAI-compatible proxy for your Claude Max, ChatGPT/Codex and Google Antigravity (Gemini) subscriptions. Pick the provider and model from inside SillyTavern.",
   "main": "plugin.js",
   "type": "module",

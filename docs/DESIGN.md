@@ -45,6 +45,10 @@ migration. Precedence: unified namespace > legacy namespace > OpenAI
 | Codex | app-server, `modelProvider: "openai"` | direct OpenAI-compatible HTTP when a key exists (clean `messages[]`), else app-server with the non-OpenAI provider from `config.toml` | app-server exactly as the CLI is configured (so a provider switch made in the CLI is honoured); direct HTTP when no CLI but a key |
 | Gemini | `agy` print mode | direct HTTP with `GEMINI_API_KEY` to `GOOGLE_GEMINI_BASE_URL` (default: Google's OpenAI-compatible endpoint) | agy when installed, else key |
 
+Default backend is `subscription` for every provider — this is a subscription
+plugin, so a key is only ever billed after the user opts in (Auto or API).
+Settings saved by 3.0.0 (default Auto) are migrated once by the panel.
+
 ## Claude specifics (carried over + fixed)
 
 * Synthetic session resume (`resume` + one-shot `SessionStore`) gives real

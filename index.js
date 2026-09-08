@@ -41,7 +41,7 @@
     const PLUGIN_ROUTE = '/api/plugins/subscriptions';
 
     const SCOPES = ['all', 'claude', 'codex', 'gemini'];
-    const BACKENDS = ['auto', 'subscription', 'api'];
+    const BACKENDS = ['subscription', 'auto', 'api'];
     const CLAUDE_EFFORTS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
     const CLAUDE_THINKING = ['adaptive', 'on', 'off'];
     const CODEX_EFFORTS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
@@ -54,9 +54,9 @@
         endpointBase: DEFAULT_BASE,
         scope: 'all',
         showReasoning: true,
-        claude: { backend: 'auto', effort: 'auto', thinking: 'adaptive', identityMode: false, useResume: true, fastMode: false },
-        codex: { backend: 'auto', effort: 'auto', serviceTier: 'standard', reasoningSummary: 'auto' },
-        gemini: { backend: 'auto', effort: 'auto' },
+        claude: { backend: 'subscription', effort: 'auto', thinking: 'adaptive', identityMode: false, useResume: true, fastMode: false },
+        codex: { backend: 'subscription', effort: 'auto', serviceTier: 'standard', reasoningSummary: 'auto' },
+        gemini: { backend: 'subscription', effort: 'auto' },
     };
 
     function migrateLegacy(target) {
@@ -93,6 +93,12 @@
             else if (typeof defaultSettings[key] === 'object' && defaultSettings[key] !== null) {
                 for (const k2 in defaultSettings[key]) if (s[key][k2] === undefined) s[key][k2] = defaultSettings[key][k2];
             }
+        }
+        // 3.0.1: the shipped default became "subscription" (this is a subscription
+        // plugin; overflow to a key is opt-in). Migrate settings saved by 3.0.0 once.
+        if ((s.settingsVersion ?? 1) < 2) {
+            for (const p of ['claude', 'codex', 'gemini']) if (s[p].backend === 'auto') s[p].backend = 'subscription';
+            s.settingsVersion = 2;
         }
         return s;
     }
@@ -370,8 +376,8 @@
     }
 
     const BACKEND_LABELS = {
-        auto: 'Auto (subscription first, API overflow when limits hit)',
-        subscription: 'Subscription only (CLI login)',
+        subscription: 'Subscription only (CLI login) — default',
+        auto: 'Auto (subscription first, API key when limits hit)',
         api: 'API key only (pay per token)',
     };
 
@@ -439,9 +445,9 @@
         // ── Claude ──
         const claude = makeDrawer(content, 'Claude — Anthropic Pro/Max', 'claude');
         {
-            const [l, s] = makeSelectRow('Backend', 'stSubsClaudeBackend', BACKENDS, settings.claude.backend, (v) => { settings.claude.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, BACKEND_LABELS);
+            const [l, s] = makeSelectRow('Backend', 'stSubsClaudeBackend', BACKENDS, settings.claude.backend, (v) => { settings.claude.backend = BACKENDS.includes(v) ? v : 'subscription'; saveSettingsDebounced(); }, BACKEND_LABELS);
             claude.append(l, s);
-            claude.append(makeHelp('Subscription = the `claude login` on the SillyTavern host. API = an Anthropic key or a relay token, from the Custom API key field, ST_SUBSCRIPTIONS_CLAUDE_API_KEY, ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, or ~/.claude/settings.json (set ANTHROPIC_BASE_URL or ST_SUBSCRIPTIONS_CLAUDE_BASE_URL for a relay). Auto uses the subscription and switches to the API key for a request when the 5-hour/weekly window is exhausted.'));
+            claude.append(makeHelp('Default is Subscription only: nothing but your `claude login` is ever billed. API = an Anthropic key or a relay token, from the Custom API key field, ST_SUBSCRIPTIONS_CLAUDE_API_KEY, ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, or ~/.claude/settings.json (set ANTHROPIC_BASE_URL or ST_SUBSCRIPTIONS_CLAUDE_BASE_URL for a relay). Auto uses the subscription and switches to the API key for a request when the 5-hour/weekly window is exhausted.'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsClaudeEffort', CLAUDE_EFFORTS, settings.claude.effort, (v) => { settings.claude.effort = CLAUDE_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (model default)', xhigh: 'xhigh (deeper)', max: 'max (deepest)' });
             claude.append(el2, es);
             claude.append(makeHelp('How hard Claude reasons before replying — low is fastest, max thinks longest. Higher = better consistency on complex scenes, slower replies, more quota.'));
@@ -459,7 +465,7 @@
         // ── Codex ──
         const codex = makeDrawer(content, 'Codex — ChatGPT Plus/Pro', 'codex');
         {
-            const [l, s] = makeSelectRow('Backend', 'stSubsCodexBackend', BACKENDS, settings.codex.backend, (v) => { settings.codex.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (follow the Codex CLI config, including any provider you switched it to)', subscription: 'Subscription only (ChatGPT login, provider openai)', api: 'API key only (pay per token)' });
+            const [l, s] = makeSelectRow('Backend', 'stSubsCodexBackend', BACKENDS, settings.codex.backend, (v) => { settings.codex.backend = BACKENDS.includes(v) ? v : 'subscription'; saveSettingsDebounced(); }, { subscription: 'Subscription only (ChatGPT login, provider openai) — default', auto: 'Auto (follow the Codex CLI config, including any provider you switched it to)', api: 'API key only (pay per token)' });
             codex.append(l, s);
             codex.append(makeHelp('Runs through the Codex CLI\'s app-server with a clean system prompt (no coding preamble, no MCP servers, no tools). Subscription needs `codex login` on the SillyTavern host. API uses OPENAI_API_KEY (+ OPENAI_BASE_URL for a compatible relay) or the Custom API key field directly.'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsCodexEffort', CODEX_EFFORTS, settings.codex.effort, (v) => { settings.codex.effort = CODEX_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (model default)', ultra: 'ultra (GPT-6 Astra)' });
@@ -475,7 +481,7 @@
         // ── Gemini ──
         const gemini = makeDrawer(content, 'Gemini — Google Antigravity', 'gemini');
         {
-            const [l, s] = makeSelectRow('Backend', 'stSubsGeminiBackend', BACKENDS, settings.gemini.backend, (v) => { settings.gemini.backend = BACKENDS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (agy when installed, else API key)', subscription: 'Antigravity CLI only (agy sign-in / its own toggle)', api: 'API key only (pay per token)' });
+            const [l, s] = makeSelectRow('Backend', 'stSubsGeminiBackend', BACKENDS, settings.gemini.backend, (v) => { settings.gemini.backend = BACKENDS.includes(v) ? v : 'subscription'; saveSettingsDebounced(); }, { subscription: 'Antigravity CLI only (agy sign-in) — default', auto: 'Auto (agy when installed, else API key)', api: 'API key only (pay per token)' });
             gemini.append(l, s);
             gemini.append(makeHelp('The agy CLI bills whatever it is signed in to. API sends the chat straight to Google\'s OpenAI-compatible Gemini endpoint with GEMINI_API_KEY (or to GOOGLE_GEMINI_BASE_URL if you point it at a compatible relay).'));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsGeminiEffort', GEMINI_EFFORTS, settings.gemini.effort, (v) => { settings.gemini.effort = GEMINI_EFFORTS.includes(v) ? v : 'auto'; saveSettingsDebounced(); }, { auto: 'Auto (from the model name, e.g. …-high)', low: 'Low (fastest)', medium: 'Medium', high: 'High (deepest)' });
