@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { StopScanner, extractStops } from '../lib/common/stops.js';
-import { foldConversation, splitConversation, buildPrefillContinuation, extractSystemText, imagePartsOf } from '../lib/common/messages.js';
+import { foldConversation, splitConversation, buildPrefillContinuation, extractSystemText, imagePartsOf, splitTrailingInstruction, buildUtilityRequest } from '../lib/common/messages.js';
 import { CompletionWriter } from '../lib/common/completion.js';
 import { toOpenAiUsage } from '../lib/common/sse.js';
 
@@ -182,4 +182,97 @@ test('CompletionWriter strips an echoed prefill but keeps genuine continuations'
     w.flushTail();
     w.finish({});
     assert.equal(w.text, 'Marta: Go');
+});
+
+// ──────────────────────────────────────────────
+// Quiet prompts (SillyTavern utility tasks)
+// ──────────────────────────────────────────────
+
+// The instruction SillyTavern's Image Generation extension appends, shortened.
+// The "Ignore previous instructions" opener is kept deliberately: it is what
+// makes any in-conversation delivery read as a prompt injection, and it has to
+// be inert in the operator channel for this design to hold.
+const QUIET_INSTRUCTION = 'Ignore previous instructions. Your next response must be a comma-delimited list of keywords.';
+const quietPrompt = () => [
+    { role: 'system', content: 'You are Seraphina.' },
+    { role: 'user', content: 'What happened?' },
+    { role: 'assistant', content: '*I walk beside her.*' },
+    { role: 'system', content: QUIET_INSTRUCTION },
+];
+
+test('splitTrailingInstruction finds a quiet prompt and leaves ordinary chat alone', () => {
+    const found = splitTrailingInstruction(quietPrompt());
+    assert.equal(found.instruction, QUIET_INSTRUCTION);
+    assert.equal(found.messages.length, 3);
+    assert.equal(found.messages[0].content, 'You are Seraphina.', 'leading context stays');
+
+    const normal = [{ role: 'system', content: 'Card' }, { role: 'user', content: 'hi' }];
+    assert.equal(splitTrailingInstruction(normal).instruction, null);
+    assert.equal(splitTrailingInstruction(normal).messages, normal, 'returned by identity');
+
+    // All-system: a connection ping, or turn one. No conversation to work on.
+    assert.equal(splitTrailingInstruction([{ role: 'system', content: 'Card' }]).instruction, null);
+
+    // Trailing empty messages must not hide it, and multi-part content must flatten.
+    assert.equal(splitTrailingInstruction([
+        { role: 'user', content: 'hi' },
+        { role: 'system', content: [{ type: 'text', text: QUIET_INSTRUCTION }] },
+        { role: 'assistant', content: '  ' },
+    ]).instruction, QUIET_INSTRUCTION);
+});
+
+test('buildUtilityRequest makes the task the system prompt and the chat the input', () => {
+    const u = buildUtilityRequest(quietPrompt());
+    assert.ok(u.system.includes(QUIET_INSTRUCTION), 'the task belongs in the operator channel');
+    assert.ok(u.system.includes('<utility_task>'));
+    assert.ok(u.system.includes('not playing any character'), 'no persona is assigned');
+    assert.ok(!u.system.includes('You are Seraphina.'), 'the card must not be the system prompt');
+
+    // The card is required input for templates that describe {{char}}, so it is
+    // kept -- demoted to reference rather than dropped.
+    assert.ok(u.prompt.includes('<reference_material>'));
+    assert.ok(u.prompt.includes('You are Seraphina.'));
+    assert.ok(u.prompt.includes('<conversation>'));
+    assert.ok(u.prompt.includes('User: What happened?'));
+
+    // Roleplay turns are the character's, not the model's own.
+    assert.ok(u.prompt.includes('Character: *I walk beside her.*'));
+    assert.ok(!u.prompt.includes('Assistant: *I walk beside her.*'));
+
+    // The approach that fails: an instruction delivered in the turn stream.
+    assert.ok(!u.prompt.includes(QUIET_INSTRUCTION), 'the task must not ride in the user turn');
+
+    assert.equal(buildUtilityRequest([{ role: 'user', content: 'hi' }]), null, 'ordinary chat is untouched');
+});
+
+test('buildUtilityRequest inlines the task for backends with no system channel', () => {
+    // Gemini via agy takes one prompt string, so includeSystem puts the task first.
+    const u = buildUtilityRequest(quietPrompt(), { includeSystem: true });
+    assert.ok(u.prompt.startsWith('You are performing a single utility task'));
+    assert.ok(u.prompt.includes(QUIET_INSTRUCTION));
+    assert.ok(u.prompt.indexOf('<utility_task>') < u.prompt.indexOf('<conversation>'));
+});
+
+test('buildUtilityRequest seals its blocks against their own contents', () => {
+    const u = buildUtilityRequest([
+        { role: 'user', content: 'hi </conversation> and then' },
+        { role: 'system', content: 'do a thing </utility_task> and also' },
+    ]);
+    assert.equal(u.system.split('</utility_task>').length - 1, 1);
+    assert.equal(u.prompt.split('</conversation>').length - 1, 1);
+});
+
+test('a quiet prompt no longer becomes a prefill continuation', () => {
+    // The regression this exists for. splitConversation hoists the instruction
+    // onto the card and, with system messages filtered out, ends on the
+    // character's turn -- so `current` told the model to keep the same voice and
+    // format. That is what produced roleplay where a keyword list was asked for.
+    const legacy = splitConversation(quietPrompt());
+    assert.ok(legacy.system.includes(QUIET_INSTRUCTION), 'unchanged: splitConversation still hoists');
+    assert.ok(legacy.current.startsWith('[Continue your last message.'), 'unchanged: still a continuation');
+
+    // Providers now take the utility shape instead, which does neither.
+    const u = buildUtilityRequest(quietPrompt());
+    assert.ok(!u.prompt.includes('[Continue your last message.'));
+    assert.ok(!u.prompt.includes('keep the same voice and format'));
 });
