@@ -603,3 +603,24 @@ test('isolation never silently falls back: no usable login is an actionable erro
         Object.assign(process.env, saved);
     }
 });
+
+test('stale SDK resume dirs are swept only when they are provably ours', async () => {
+    const { sweepStaleResumeDirs, __resetResumeSweep } = await import('../lib/claude/session-store.js');
+    const { mkdirSync, existsSync, utimesSync } = await import('node:fs');
+    const cwd = join(tmpdir(), 'st-subs-test-cwd');
+    const key = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+    const ours = join(tmpdir(), `claude-resume-test-ours-${process.pid}`);
+    const theirs = join(tmpdir(), `claude-resume-test-theirs-${process.pid}`);
+    mkdirSync(join(ours, 'projects', key), { recursive: true });
+    mkdirSync(join(theirs, 'projects', 'C--someone-else'), { recursive: true });
+    const old = new Date(Date.now() - 3600_000);
+    utimesSync(ours, old, old);
+    utimesSync(theirs, old, old);
+    __resetResumeSweep();
+    sweepStaleResumeDirs(cwd, { olderThanMs: 60_000 });
+    await new Promise((r) => setTimeout(r, 5500));
+    assert.equal(existsSync(ours), false);
+    assert.equal(existsSync(theirs), true);
+    const { rmSync } = await import('node:fs');
+    rmSync(theirs, { recursive: true, force: true });
+});
