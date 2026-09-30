@@ -94,16 +94,27 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
     and thinking/caching/compaction override scrubbed; attachments, git
     instructions, the token-count reminder, terminal titles, auto-compaction
     and claude.ai MCP connectors off;
-  * account: the CLI injects the account email from the account record in its
-    config dir. The subprocess therefore gets an empty plugin-owned
-    `CLAUDE_CONFIG_DIR` plus the login as `CLAUDE_CODE_OAUTH_TOKEN` (read from
-    the credentials file or the macOS Keychain, refreshed by the plugin —
-    the CLI cannot refresh an env token). When no token can be read, the
-    CLI's own store is used and the email is back; on an auth failure in
-    isolated mode the request retries once through the CLI's own store.
+  * account: with a full login the CLI injects the account email — from its
+    account record, and when that is missing it fetches the profile itself
+    (verified live: redirecting only `CLAUDE_CONFIG_DIR`, with
+    `CLAUDE_SECURESTORAGE_CONFIG_DIR` pointing back at the real login, still
+    leaked it). With a bare token in `CLAUDE_CODE_OAUTH_TOKEN` it has no
+    profile. So the subprocess gets empty plugin-owned config and
+    secure-storage dirs plus the login's access token (read from the
+    credentials file or the macOS Keychain item — named exactly as the CLI
+    names it — and refreshed by the plugin; the CLI cannot refresh an env
+    token). No usable token → an actionable 401, never a silent fallback;
+    `ST_SUBSCRIPTIONS_CLAUDE_ISOLATE_ACCOUNT=0` is the explicit opt-out.
+  * billing guard: the CLI resolves credentials itself (a /login-managed
+    Console key or an `ant` profile can outrank the claude.ai login). Every
+    path streams its prompt, held behind a gate until
+    `initializationResult()` shows `apiKeySource` none/oauth and a
+    first-party provider; otherwise the query is aborted before anything is
+    sent.
   * what remains: the mandatory billing header + one-line agent identity
-    (subscription auth requires it) and a short environment note (platform,
-    shell, OS, model name, date). The only switch for the latter
+    (subscription auth requires it) and a short environment note (working
+    directory, git flag, platform, shell, OS, model name, date). The only
+    switch for the latter
     (`CLAUDE_CODE_SIMPLE`) also disables OAuth.
 * **Working directory matters to the safety classifier.** The environment
   note shows the working directory. With the drive root or a nondescript
@@ -118,6 +129,10 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
   (`model_refusal_no_fallback`, `stop_reason: "refusal"`) and are final. The
   served-model guard (init, every `message_start`, every assistant message)
   compares canonical ids for every model, as a backstop.
+* Thinking budgets: the CLI raises a budget below 1024 to 1024 even when
+  `max_tokens` is smaller, and the API accepts that with interleaved
+  thinking (verified live on Haiku 4.5), so 3.0's "no thinking under 2048
+  max tokens" guard is gone.
 * **Max response length.** When a reply hits `max_tokens` the CLI injects
   hidden "resume" turns up to three times. The plugin aborts at the first
   `message_delta` with `stop_reason: "max_tokens"` and finishes with
@@ -145,7 +160,12 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
   off, the environment/permissions/apps/collaboration/skills prompt blocks
   off, `project_doc_max_bytes=0`, `developerInstructions: ''`, read-only
   sandbox, approval policy `never`, every approval request refused, and any
-  tool item that still starts ends the turn as an error. After `initialize`
+  tool item that still starts ends the turn as an error. Codex still declares
+  `apply_patch` and `request_user_input` (attached per model family, no
+  switch); the sandbox, the fileChange guard and the auto-answered input
+  request neutralise them. On "Subscription only" an `openai_base_url` /
+  `chatgpt_base_url` pointing at a non-OpenAI host is refused (it would carry
+  the ChatGPT token). After `initialize`
   the effective config (`config/read`) is checked; an MCP server that is
   still enabled means one relaunch with it off, then fail closed.
 * The global `AGENTS.md` in the Codex home is always injected and has no
@@ -168,9 +188,12 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
   `--disable-slash-commands`. agy silently falls back to its default agent for
   an unknown `--agent`, so each run writes its own log and the turn is killed
   if the log shows the fallback. Any tool step kills the process tree.
-* agy retries safety-blocked replies by itself; the runner stops at the first
-  blocked reply (422, never retried). Persistent 429s end the turn after
-  ~11 s instead of waiting for the watchdog.
+* agy re-asks a safety-blocked prompt once, in-process, before the plugin
+  can stop it (no switch for that in 1.2.14); the runner then kills the turn
+  and returns a 422 refusal — nothing from the retry reaches the client. Use
+  the API backend when a strict wire-level no-retry matters. Persistent 429s
+  end the turn after ~11 s instead of waiting for the watchdog. agy also adds
+  the host's local time to each turn.
 * agy never streams thoughts in stream-json mode; reasoning display only
   works on the `api` backend. Images are not supported on the agy path.
 

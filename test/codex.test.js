@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 import { readCodexConfig, isolationOverrides, enabledMcpServers, globalInstructionFiles, DISABLED_FEATURES } from '../lib/codex/config.js';
 import { clampEffort, resolveCodexEffort } from '../lib/codex/models.js';
-import { runAppServerTurn, runCodexChat, assertChatgptLogin, codexUsage, codexTurnError, codexVerbosity } from '../lib/codex/chat.js';
+import { runAppServerTurn, runCodexChat, assertChatgptLogin, assertOpenAiEndpoints, codexUsage, codexTurnError, codexVerbosity } from '../lib/codex/chat.js';
 import { CodexAppServer, stopAppServer, getAppServer } from '../lib/codex/app-server.js';
 import { subscriptionReadiness, codexStatus } from '../lib/codex/status.js';
 import { pluginVersion } from '../lib/status.js';
@@ -71,6 +71,7 @@ class FakeServer {
         this.codexHome = codexHome;
         this.calls = [];
         this.listeners = new Set();
+        this.ready = true;
     }
     async request(method, params) {
         this.calls.push({ method, params });
@@ -801,4 +802,20 @@ test('subscriptionReadiness covers keyring logins and unknown modes', () => {
     assert.equal(subscriptionReadiness({ launch, account: { type: 'chatgpt' }, auth: { present: false } }).ready, true);
     assert.equal(subscriptionReadiness({ launch, account: { type: 'chatgpt' }, auth: { present: false }, instructionSources: ['/a'] }).ready, false);
     assert.equal(subscriptionReadiness({ launch, account: { type: 'chatgpt' }, auth: { present: false }, startError: 'boom' }).ready, false);
+});
+
+test('subscription gate refuses a non-OpenAI openai_base_url / chatgpt_base_url', () => {
+    assert.doesNotThrow(() => assertOpenAiEndpoints({}, '/home'));
+    assert.doesNotThrow(() => assertOpenAiEndpoints({ openai_base_url: 'https://api.openai.com/v1' }, '/home'));
+    assert.doesNotThrow(() => assertOpenAiEndpoints({ chatgpt_base_url: 'https://chatgpt.com/backend-api/' }, '/home'));
+    assert.throws(() => assertOpenAiEndpoints({ openai_base_url: 'https://relay.example/v1' }, '/home'), (e) => e.httpStatus === 400 && /relay\.example/.test(e.message));
+    assert.throws(() => assertOpenAiEndpoints({ chatgpt_base_url: 'http://127.0.0.1:9/x' }, '/home'), (e) => e.httpStatus === 400);
+});
+
+test('a server that is restarting never receives a turn', async () => {
+    const server = new FakeServer();
+    server.ready = false;
+    const { writer } = makeWriter();
+    await assert.rejects(runAppServerTurn({ server, messages: MESSAGES, model: 'gpt-5.5', settings: settings({}), writer, modelProvider: 'openai' }), (e) => e.httpStatus === 503);
+    assert.ok(!server.calls.some((c) => c.method === 'thread/start'));
 });

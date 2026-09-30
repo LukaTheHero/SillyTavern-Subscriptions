@@ -40,7 +40,10 @@ shows up, the rest stay out of the way.
 **Updating from 3.0.x:** SillyTavern pulls the new code on restart, but it
 does not install dependencies. Run `npm install` inside
 `plugins/SillyTavern-Subscriptions` once — 3.1 needs the newer Claude Code CLI
-for Opus 5.5 — then restart.
+for Opus 5.5 — then restart. Also make sure Gemini's agy is 1.2.11 or newer
+(`agy update`) and the Codex CLI is current (`npm i -g @openai/codex@latest`,
+tested with 0.154) — older ones are refused because the roleplay isolation
+depends on them.
 
 Details, migration from the old plugins, and every setting: below. What
 changed: [CHANGELOG.md](CHANGELOG.md).
@@ -63,21 +66,25 @@ changed: [CHANGELOG.md](CHANGELOG.md).
   each with its effort levels), long chats piped safely to the CLI, every turn
   run by a plugin-owned agent with no tools.
 - **Subscription only by default.** Nothing but your logins is ever billed
-  unless you opt in: per provider you can switch to *Auto* (subscription
-  first, your API key when the window is exhausted) or *API key only*. Any
-  Anthropic/OpenAI-compatible relay works by setting a base URL.
+  unless you opt in: per provider you can switch to *Auto* or *API key only*
+  (see the panel reference for what Auto means per provider). Any
+  Anthropic/OpenAI-compatible relay works by setting a base URL. On Claude,
+  the plugin checks before every request that the CLI really authenticated
+  with your subscription login (not a stored Console key or another provider).
 - **Roleplay isolation.** No coding preamble, no tools, no MCP servers, no
   CLAUDE.md / AGENTS.md / GEMINI.md, skills or rules from your machine, no
-  account email. (One exception you cannot switch off: the Claude CLI adds a
-  short note with the platform, the model name and today's date.)
+  account email. (What you cannot switch off: the Claude CLI adds a short note
+  with the working directory — a folder inside the plugin — the platform,
+  shell, OS, the model name and today's date; agy adds your local time.)
 - **The model you picked is the model that answers.** A safety refusal comes
   back as an error — never silently retried, never answered by a different
   model.
 - **Stop sequences enforced server-side** (`\n{{user}}:` guards work on every
-  backend), SillyTavern's max response length respected (the reply ends with
-  `finish_reason: length`), thinking displayed in SillyTavern's native
-  reasoning box, clear error messages, a status panel that shows exactly what
-  each provider sees.
+  backend), SillyTavern's max response length respected on Claude and on the
+  API backends (the reply ends with `finish_reason: length`; the Codex
+  app-server and agy have no output cap), thinking displayed in SillyTavern's
+  native reasoning box, clear error messages, a status panel that shows
+  exactly what each provider sees.
 - **Windows, Linux, macOS and Termux (Android)** — see the Termux note below.
 
 ## Prerequisites
@@ -86,9 +93,9 @@ On the machine that runs SillyTavern (same OS user as `server.js`):
 
 | Provider | Install | Sign in |
 | --- | --- | --- |
-| Claude | nothing extra — the Claude Code CLI ships inside the plugin's Agent SDK | `claude auth login` (headless: `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`). No global `claude`? Use the bundled one: `node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude auth login` inside the plugin folder |
-| Codex | `npm i -g @openai/codex` (or the native installer) | `codex login` with your ChatGPT account |
-| Gemini | Antigravity CLI from https://antigravity.google/cli | run `agy` once and complete the browser sign-in |
+| Claude | nothing extra — the Claude Code CLI ships inside the plugin's Agent SDK | `claude auth login` (macOS or headless: `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`, a long-lived token). No global `claude`? Use the bundled one: `node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude auth login` inside the plugin folder |
+| Codex | `npm i -g @openai/codex` (or the native installer), a current version | `codex login` with your ChatGPT account |
+| Gemini | Antigravity CLI 1.2.11+ from https://antigravity.google/cli | run `agy` once and complete the browser sign-in |
 
 You only need the providers you want. SillyTavern `config.yaml` must have
 `enableServerPlugins: true`.
@@ -160,18 +167,18 @@ Settings in the panel apply from the next message — no reconnect needed.
 | Section | Setting | Notes |
 | --- | --- | --- |
 | Global | Show reasoning | Display only. Streams thinking summaries into ST's reasoning box (also enable **Request model reasoning** in ST's AI Response Configuration). Claude and Codex stream summaries; Antigravity's CLI never exposes Gemini thoughts. |
-| Claude | Backend | **Subscription only (default)** — only your Claude login is ever billed. *Auto* — the subscription first; the API key is used for a request only when your plan's usage window is exhausted or rate limiting persists after retries (never just because a key exists). *API key* — keys from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` / `ANTHROPIC_BASE_URL` points at a relay (a real `sk-ant-` key is never sent to a relay URL that only sits in settings.json). Your OAuth login is never modified. |
+| Claude | Backend | **Subscription only (default)** — only your Claude login is ever billed, never an API key (checked before each request). If Extra Usage is enabled on your Claude account, requests past your plan window — and Fast mode / the 4.6 "(1M context)" entries — are billed as Extra Usage; turn it off in your account settings if you don't want that. *Auto* — the subscription first; the API key is used for a request only when your plan's usage window is exhausted or rate limiting persists after retries (never just because a key exists). *API key* — keys from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` / `ANTHROPIC_BASE_URL` points at a relay (a real `sk-ant-` key is never sent to a relay URL that only sits in settings.json). Your OAuth login is never modified. |
 | | Reasoning effort | `low … max`. Auto = the model's default (Opus 5.5 / Sonnet 5.5: medium, Opus 4.7: xhigh, most others: high). Levels a model lacks step down automatically; Haiku 4.5, Sonnet 4.5 and Opus 4.5 take no effort. |
-| | Thinking mode | Adaptive / Always on / Off. Fable, Opus 5.5 and Sonnet 5.5 always think (Off is ignored there); Off works on every other model. Thinking counts toward the max response length. |
+| | Thinking mode | Adaptive / On / Off. Fable, Opus 5.5 and Sonnet 5.5 always think (Off is ignored there); Off works on every other model. On forces a fixed thinking budget where a model allows one (Opus/Sonnet 4.6 and the 4.5 models); on newer models it behaves like Adaptive. Thinking counts toward the max response length. |
 | | Session resume | On (recommended): real multi-turn session + prompt caching. |
 | | Identity mode | Adds one line naming the exact model (for cards that ask the model who it is). No coding preamble. |
 | | Fast mode | Opus 4.8 / 5 / 5.5 only. Draws Extra Usage credits (billed separately, not your plan window). |
-| Codex | Backend | **Subscription only (default)** — needs a ChatGPT login; an API-key login in Codex is refused, never billed. *Auto* follows the Codex CLI config (including any provider you switched it to). *API* uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
+| Codex | Backend | **Subscription only (default)** — needs a ChatGPT login; an API-key login in Codex is refused, never billed, and so is a `config.toml` that points `openai_base_url` / `chatgpt_base_url` at a non-OpenAI host. *Auto* runs the Codex CLI exactly as configured — a relay provider or an API-key login there is billed on every request — and uses a key directly only when the CLI is missing or signed out. *API* uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
 | | Reasoning effort | Clamped to the model's supported levels. |
 | | Verbosity | Default (medium) / low / high. |
 | | Service tier | Standard / Fast (priority) / Ultrafast where offered. |
 | | Reasoning summary | auto / concise / detailed / none. |
-| Gemini | Backend | **Antigravity CLI only (default)** — your Google sign-in. If agy's own settings route it to a Gemini API key or relay, Subscription refuses; *Auto* runs agy as configured. *API* uses `GEMINI_API_KEY` / `GOOGLE_API_KEY` with Google's endpoint, or `GOOGLE_GEMINI_BASE_URL` for a relay. |
+| Gemini | Backend | **Antigravity CLI only (default)** — your Google sign-in. If agy's own settings route it to a Gemini API key or relay, Subscription refuses; *Auto* runs agy as configured (a key or relay there is billed on every request) and uses a key directly only when agy is missing. *API* uses `GEMINI_API_KEY` / `GOOGLE_API_KEY` with Google's endpoint, or `GOOGLE_GEMINI_BASE_URL` for a relay. |
 | | Reasoning effort | Overrides the `-high/-medium/-low` suffix where the model offers that level (Gemini 3.1 Pro: High and Low). |
 | Status & quota | Refresh | Per provider and per selected backend: CLI found (with version), login state, routing, key availability, Claude 5h/7d windows (plus per-model weekly caps and Extra Usage), Codex rate limits. |
 
@@ -247,11 +254,13 @@ is set. Changing the port? Update **Listener base URL** in the panel.
   `/opt/homebrew/bin` and the global npm `node_modules`. macOS logins kept in
   the Keychain are used as-is.
 - Termux: `pkg install nodejs-lts git`, install SillyTavern as usual, then the
-  steps above. **Codex and Gemini work; Claude does not run natively on
-  Termux** — Claude Code publishes no Android build. For Claude, run
-  SillyTavern inside `proot-distro` (Debian/Ubuntu), or point
-  `ST_SUBSCRIPTIONS_CLAUDE_PATH` at a `claude` binary known to run there.
-  `npm run doctor` inside the plugin folder shows what was detected.
+  steps above. **Claude does not run natively on Termux** — Claude Code
+  publishes no Android build. The same npm packaging may skip Codex's Linux
+  binary there (`npm i -g @openai/codex --force`, or set
+  `ST_SUBSCRIPTIONS_CODEX_PATH`), and agy on Android is untested. The
+  dependable route for all three is running SillyTavern inside
+  `proot-distro` (Debian/Ubuntu). `npm run doctor` inside the plugin folder
+  shows what was detected.
 
 ## Troubleshooting
 
@@ -259,15 +268,29 @@ is set. Changing the port? Update **Listener base URL** in the panel.
   CLIs, logins, keys, catalogs, and whether each provider's default backend is
   ready. `npm run doctor -- --deep` adds Codex account/rate limits.
 - **"does not support this model; version … or newer is required"** — the
-  Claude CLI inside the Agent SDK is too old: `npm install` in the plugin
-  folder, restart SillyTavern.
+  Claude CLI is too old: `npm install` in the plugin folder and restart
+  SillyTavern (or, if you set `ST_SUBSCRIPTIONS_CLAUDE_PATH` / use a global
+  `claude`, update that one — the error names which CLI it was).
+- **"Claude login unavailable"** — the plugin reads your login token to keep
+  your account email out of prompts, and could not read or refresh it. Run
+  `claude` once (refreshes the login), or on macOS / a headless host create a
+  long-lived token with `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN`
+  for SillyTavern. `ST_SUBSCRIPTIONS_CLAUDE_ISOLATE_ACCOUNT=0` lets the CLI
+  use its own login instead (it then adds your email to prompts).
+- **"Billing guard: the Claude CLI would have used …"** — on "Subscription
+  only" the CLI picked a stored Console API key or another provider instead
+  of your subscription login. Nothing was sent. Remove that credential, or
+  choose the API backend if you meant to pay per token.
 - **"… declined this request (safety classifier …)"** — the model's own
   safety classifier refused the message. Nothing was retried or moved to
   another model: reword, regenerate, go back a message, or pick another model.
 - **Codex "would inject AGENTS.md …, so chats are refused"** — Codex adds the
   `AGENTS.md` from its home to every prompt, and there is no switch for it.
   Empty that file, or give the plugin its own Codex home: log in once with
-  `CODEX_HOME=<dir> codex login` and set `ST_SUBSCRIPTIONS_CODEX_HOME=<dir>`.
+  `CODEX_HOME=<dir> codex login` (PowerShell: `$env:CODEX_HOME="<dir>"; codex login`)
+  and set `ST_SUBSCRIPTIONS_CODEX_HOME=<dir>`. Enabled MCP servers in that
+  home's `config.toml` need simple names (letters, digits, `_`, `-`) so they
+  can be switched off, or `enabled = false`.
 - **Codex "not signed in with a ChatGPT account"** — the Codex home has no
   ChatGPT login (or an API-key login): `codex login` with your ChatGPT account,
   or set `ST_SUBSCRIPTIONS_CODEX_HOME` to the home that has one.
@@ -282,6 +305,9 @@ is set. Changing the port? Update **Listener base URL** in the panel.
 - **Auth errors mid-chat (Claude)** — the plugin refreshes the OAuth token
   before and, once, during a request; if it keeps failing, run
   `claude auth login` as the SillyTavern user.
+- **A "(1M context)" chat suddenly fails as too long** — if your plan has no
+  Extra Usage for 1M, the plugin runs the request at 200k and tries 1M again
+  after an hour (the server log says so).
 
 ## Development
 

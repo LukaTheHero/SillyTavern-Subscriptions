@@ -6,24 +6,35 @@
 //
 // Each provider is judged by its DEFAULT backend (the subscription): an API
 // key alone never makes a provider "OK", because the default never bills it.
-// Exit code 1 when no provider's subscription is usable.
+// Some logins cannot be confirmed offline (agy's Google sign-in, a macOS
+// Keychain login) — those count as usable when the CLI is there. Exit code 1
+// only when no provider's subscription can work.
 
 import { aggregateStatus } from '../lib/status.js';
 import { unifiedModelList } from '../lib/models.js';
 import { stopAppServer } from '../lib/codex/app-server.js';
 
 const deep = process.argv.includes('--deep') || process.env.npm_config_deep === 'true';
-const readyWord = (r) => (r === true ? 'ready' : (r === false ? 'NOT READY' : 'unknown'));
+const readyWord = (r) => (r === true ? 'ready' : (r === false ? 'NOT READY' : 'unconfirmed (checked on the first chat)'));
 const tick = (r) => (r === true ? 'OK  ' : (r === false ? 'FAIL' : ' ?  '));
 
-function backendLines(p) {
+const API_ROLE = {
+    claude: 'API backend; Auto uses it only when the plan window is exhausted',
+    codex: 'API backend; Auto uses it only when the CLI is unavailable',
+    gemini: 'API backend; Auto uses it only when agy is unavailable',
+};
+
+function backendLines(p, provider) {
     const b = p?.backends ?? {};
     const lines = [];
     lines.push(`     subscription (default): ${readyWord(b.subscription?.ready)}${b.subscription?.message ? ` — ${b.subscription.message}` : ''}`);
-    if (b.api?.ready === true) lines.push(`     api key (Auto overflow / API backend): ${b.api.source ?? 'found'}${b.api.baseUrl ? ` → ${b.api.baseUrl}` : ''}`);
+    if (b.api?.ready === true) lines.push(`     api key (${API_ROLE[provider]}): ${b.api.source ?? 'found'}${b.api.baseUrl ? ` → ${b.api.baseUrl}` : ''}`);
     else lines.push(`     api key: ${b.api?.message ?? 'none found in the environment'}`);
     return lines;
 }
+
+/** Usable as far as an offline check can tell. */
+const usable = (p, r) => r === true || (r === null && p?.available !== false && p?.ok === true);
 
 let anyReady = false;
 try {
@@ -36,7 +47,7 @@ try {
     console.log(`${tick(c.available ? cReady : false)} Claude (Anthropic Pro/Max)`);
     console.log(`     Agent SDK: ${c.sdk} ${c.sdkVersion ?? ''}`);
     console.log(`     Claude Code CLI: ${c.cli?.path ? `${c.cli.version ? `v${c.cli.version} ` : ''}(${c.cli.source})` : 'not found'}`);
-    for (const l of backendLines(c)) console.log(l);
+    for (const l of backendLines(c, 'claude')) console.log(l);
     if (c.message) console.log(`     ! ${c.message}`);
 
     const x = s.providers.codex;
@@ -44,8 +55,10 @@ try {
     console.log(`${tick(x.available === false ? false : xReady)} Codex (ChatGPT Plus/Pro)`);
     console.log(`     CLI: ${x.cli?.found ? `${x.cli.path} v${x.cli.version ?? '?'} (${x.cli.source})` : 'not found'}`);
     if (x.home) console.log(`     home: ${x.home}`);
-    for (const l of backendLines(x)) console.log(l);
-    if (x.config?.modelProvider && x.config.modelProvider !== 'openai') console.log(`     note: config.toml routes the CLI through provider "${x.config.modelProvider}" — only Auto follows it`);
+    for (const l of backendLines(x, 'codex')) console.log(l);
+    if (x.login?.apiKeyLogin) console.log('     note: the CLI is logged in with an API key — "Subscription only" refuses it; Auto would bill it on every request');
+    if (x.instructionSources?.length) console.log(`     ! Codex would inject ${x.instructionSources.join(', ')} — chats are refused until it is emptied or a dedicated ST_SUBSCRIPTIONS_CODEX_HOME is used`);
+    if (x.config?.modelProvider && x.config.modelProvider !== 'openai') console.log(`     note: config.toml routes the CLI through provider "${x.config.modelProvider}" — Auto bills it on every request; Subscription ignores it`);
     if (x.rateLimits?.windows?.length) for (const w of x.rateLimits.windows) console.log(`     ${w.type}: ${Math.round((w.utilization ?? 0) * 100)}% used`);
     if (x.message) console.log(`     ! ${x.message}`);
 
@@ -54,10 +67,10 @@ try {
     console.log(`${tick(g.available === false ? false : gReady)} Gemini (Google Antigravity)`);
     console.log(`     CLI: ${g.cli?.found ? `${g.cli.path} v${g.cli.version ?? '?'} (${g.cli.source})` : 'not found'}`);
     if (g.billing) console.log(`     agy billing: ${g.billing}`);
-    for (const l of backendLines(g)) console.log(l);
+    for (const l of backendLines(g, 'gemini')) console.log(l);
     if (g.message) console.log(`     ! ${g.message}`);
 
-    anyReady = [c.available && cReady === true, xReady === true, gReady === true].some(Boolean);
+    anyReady = [c.available && usable(c, cReady), usable(x, xReady), usable(g, gReady)].some(Boolean);
 
     console.log('');
     const list = await unifiedModelList({ live: deep });

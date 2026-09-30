@@ -137,16 +137,74 @@ test('buildSubprocessEnv scrubs, pins, isolates and never enables substitution',
     const fast = buildSubprocessEnv({ envPins: {}, auth: { mode: 'subscription' }, fastMode: true, base });
     assert.equal(fast.CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK, '1');
 
-    const iso = buildSubprocessEnv({ envPins: {}, auth: { mode: 'subscription', oauthToken: 'tok-iso', configDir: '/scratch' }, base });
+    const iso = buildSubprocessEnv({ envPins: {}, auth: { mode: 'subscription', isolated: true, oauthToken: 'tok-iso', configDir: '/scratch' }, base: { ...base, CLAUDE_CONFIG_DIR: '/real', CLAUDE_SECURESTORAGE_CONFIG_DIR: '/real' } });
     assert.equal(iso.CLAUDE_CODE_OAUTH_TOKEN, 'tok-iso');
     assert.equal(iso.CLAUDE_CONFIG_DIR, '/scratch');
+    assert.equal(iso.CLAUDE_SECURESTORAGE_CONFIG_DIR, '/scratch'); // the real login store stays invisible
+    const own = buildSubprocessEnv({ envPins: {}, auth: { mode: 'subscription', isolated: false }, base });
+    assert.equal(own.CLAUDE_CODE_OAUTH_TOKEN, 'keep'); // opt-out: a user's own setup-token still works
+
+    const hybridOn = buildSubprocessEnv({ envPins: {}, auth: { mode: 'subscription' }, forceBudgetThinking: true, base });
+    assert.equal(hybridOn.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, '1');
+    assert.equal(sub.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, undefined);
 
     const api = buildSubprocessEnv({ envPins: {}, auth: { mode: 'api', baseUrl: 'https://relay.example', authToken: 'tok', configDir: '/iso' }, base });
     assert.equal(api.ANTHROPIC_BASE_URL, 'https://relay.example');
     assert.equal(api.ANTHROPIC_AUTH_TOKEN, 'tok');
     assert.equal(api.CLAUDE_CONFIG_DIR, '/iso');
+    assert.equal(api.CLAUDE_SECURESTORAGE_CONFIG_DIR, '/iso'); // the real login store is invisible in API mode
     assert.equal(api.ANTHROPIC_API_KEY, undefined);
     assert.equal(api.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+});
+
+test('buildSubprocessEnv scrubs case-insensitively (Windows env names)', () => {
+    const base = { anthropic_api_key: 'leak', Anthropic_Base_Url: 'https://leak', claude_code_use_bedrock: '1', otel_log_raw_api_bodies: 'x', Path: 'p', claude_code_max_output_tokens: '9' };
+    const env = buildSubprocessEnv({ envPins: { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-5-5' }, maxTokens: 300, auth: { mode: 'subscription' }, base });
+    for (const k of ['anthropic_api_key', 'Anthropic_Base_Url', 'claude_code_use_bedrock', 'otel_log_raw_api_bodies', 'claude_code_max_output_tokens']) assert.equal(env[k], undefined, k);
+    assert.equal(env.Path, 'p');
+    assert.equal(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '300');
+    const api = buildSubprocessEnv({ envPins: {}, auth: { mode: 'api', apiKey: 'sk-ant-x', configDir: '/iso' }, base: { claude_config_dir: '/real', claude_code_oauth_token: 'tok' } });
+    assert.deepEqual(Object.keys(api).filter((k) => /^claude_config_dir$|^claude_code_oauth_token$/i.test(k)), ['CLAUDE_CONFIG_DIR']);
+});
+
+test('login store location mirrors the CLI (credentials dir + Keychain item)', async () => {
+    const { secureStorageDir, keychainServiceName } = await import('../lib/claude/oauth.js');
+    const saved = { ...process.env };
+    try {
+        delete process.env.CLAUDE_CONFIG_DIR;
+        delete process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
+        assert.equal(keychainServiceName(), 'Claude Code-credentials');
+        process.env.CLAUDE_CONFIG_DIR = '/profiles/alt';
+        assert.equal(secureStorageDir(), '/profiles/alt');
+        assert.match(keychainServiceName(), /^Claude Code-credentials-[0-9a-f]{8}$/);
+        process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR = '';
+        assert.equal(keychainServiceName(), 'Claude Code-credentials');
+    } finally {
+        for (const k of Object.keys(process.env)) delete process.env[k];
+        Object.assign(process.env, saved);
+    }
+});
+
+test('the shared Custom API key field never feeds another vendor', async () => {
+    const { isForeignKey } = await import('../lib/common/keys.js');
+    assert.equal(isForeignKey('claude', 'sk-proj-abc'), true);
+    assert.equal(isForeignKey('claude', 'AIzaXYZ'), true);
+    assert.equal(isForeignKey('claude', 'sk-ant-abc'), false);
+    assert.equal(isForeignKey('claude', 'sk-relaytoken'), false);
+    assert.equal(isForeignKey('codex', 'sk-ant-abc'), true);
+    assert.equal(isForeignKey('codex', 'sk-proj-abc'), false);
+    assert.equal(isForeignKey('gemini', 'sk-ant-abc'), true);
+    assert.equal(isForeignKey('gemini', 'AIzaXYZ'), false);
+});
+
+test('billing guard: only the subscription login may authenticate a subscription request', async () => {
+    const { assertSubscriptionAuth } = await import('../lib/claude/chat.js');
+    assert.doesNotThrow(() => assertSubscriptionAuth(undefined));
+    assert.doesNotThrow(() => assertSubscriptionAuth({ apiKeySource: 'none', apiProvider: 'firstParty', tokenSource: 'claude.ai' }));
+    assert.doesNotThrow(() => assertSubscriptionAuth({ apiKeySource: 'oauth' }));
+    assert.throws(() => assertSubscriptionAuth({ apiKeySource: '/login managed key' }), /Billing guard/);
+    assert.throws(() => assertSubscriptionAuth({ apiKeySource: 'ANTHROPIC_API_KEY' }), /Billing guard/);
+    assert.throws(() => assertSubscriptionAuth({ apiKeySource: 'none', apiProvider: 'bedrock' }), /bedrock/);
 });
 
 test('bearerFromRequest ignores SillyTavern placeholders', () => {
@@ -362,22 +420,27 @@ function sseText(out) {
     return { text, finish, error };
 }
 
-async function runWith(script, { model = 'claude-opus-5-5', messages = [{ role: 'user', content: 'hi' }], claude = {}, stream = true, maxTokens } = {}) {
+async function runWith(script, { model = 'claude-opus-5-5', messages = [{ role: 'user', content: 'hi' }], claude = {}, stream = true, maxTokens, account } = {}) {
     const { __setSdkForTesting } = await import('../lib/claude/sdk-loader.js');
     const { runClaudeChat } = await import('../lib/claude/chat.js');
     const { CompletionWriter } = await import('../lib/common/completion.js');
     const calls = [];
     __setSdkForTesting({
         query({ prompt, options }) {
-            calls.push({ prompt, options });
+            const call = { prompt, options, promptConsumed: false };
+            calls.push(call);
             const msgs = typeof script === 'function' ? script(calls.length) : script;
-            return (async function* gen() {
+            const gen = (async function* gen() {
+                // Like the CLI: read the user message before producing output.
+                for await (const _m of prompt) { call.promptConsumed = true; break; }
                 for (const m of msgs) {
                     if (m instanceof Error) throw m;
                     if (options.abortController?.signal.aborted) return;
                     yield m;
                 }
             })();
+            if (account !== undefined) gen.initializationResult = async () => ({ account });
+            return gen;
         },
     });
     const { res, out } = fakeRes();
@@ -492,4 +555,51 @@ test('runner: fast mode is opt-in and only then bypasses the org check', async (
     r = await runWith([start(), textBlock(), delta('a'), success], { claude: { fastMode: true } });
     assert.deepEqual(r.calls[0].options.settings, { fastMode: true });
     assert.equal(r.calls[0].options.env.CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK, '1');
+});
+
+test('runner: the billing guard refuses a Console key before the prompt is sent', async () => {
+    const { calls, out } = await runWith([start(), textBlock(), delta('billed'), success], { account: { apiKeySource: '/login managed key', apiProvider: 'firstParty' } });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].promptConsumed, false);
+    assert.match(out.json?.error?.message ?? '', /Billing guard/);
+    const ok = await runWith([start(), textBlock(), delta('fine'), success], { account: { apiKeySource: 'none', apiProvider: 'firstParty' } });
+    assert.equal(ok.calls[0].promptConsumed, true);
+    assert.equal(sseText(ok.out).text, 'fine');
+});
+
+test('runner: every path streams its prompt (so the guard can hold it back)', async () => {
+    const { calls } = await runWith([start(), textBlock(), delta('a'), success], { claude: { useResume: false } });
+    assert.equal(typeof calls[0].prompt?.[Symbol.asyncIterator], 'function');
+    assert.equal(calls[0].promptConsumed, true);
+});
+
+test('runner: Thinking On forces a budget on the 4.6 models', async () => {
+    const r = await runWith([start('claude-sonnet-4-6'), textBlock(), delta('a'), success], { model: 'claude-sonnet-4-6', claude: { thinking: 'on' } });
+    assert.deepEqual(r.calls[0].options.thinking, { type: 'enabled', display: 'summarized' });
+    assert.equal(r.calls[0].options.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, '1');
+    const o = await runWith([start('claude-opus-4-8'), textBlock(), delta('a'), success], { model: 'claude-opus-4-8', claude: { thinking: 'on' } });
+    assert.deepEqual(o.calls[0].options.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.equal(o.calls[0].options.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, undefined);
+});
+
+test('isolation never silently falls back: no usable login is an actionable error', async () => {
+    const { prepareSubscriptionAuth } = await import('../lib/claude/auth.js');
+    const saved = { ...process.env };
+    try {
+        delete process.env.ST_SUBSCRIPTIONS_CLAUDE_ISOLATE_ACCOUNT;
+        delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        process.env.CLAUDE_CONFIG_DIR = 'Z:/definitely/not/here';
+        if (process.platform !== 'darwin') {
+            await assert.rejects(prepareSubscriptionAuth(), (e) => e.httpStatus === 401 && /ISOLATE_ACCOUNT=0/.test(e.message));
+        }
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = 'setup-token-xyz';
+        const env = await prepareSubscriptionAuth();
+        assert.equal(env.isolated, true);
+        assert.equal(env.oauthToken, 'setup-token-xyz');
+        process.env.ST_SUBSCRIPTIONS_CLAUDE_ISOLATE_ACCOUNT = '0';
+        assert.deepEqual(await prepareSubscriptionAuth(), { mode: 'subscription', isolated: false });
+    } finally {
+        for (const k of Object.keys(process.env)) delete process.env[k];
+        Object.assign(process.env, saved);
+    }
 });

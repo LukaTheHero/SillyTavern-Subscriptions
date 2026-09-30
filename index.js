@@ -665,6 +665,7 @@ function claudeSection(c, quota, backend) {
     else if (q && q.ok === false) sec.append(row('Quota', q.message ?? 'unavailable', cred.present === false ? undefined : 'warn'));
     else if (q?.windows?.length) sec.append(quotaRows(q.windows));
     if (q?.extraUsage?.isEnabled) sec.append(row('Extra Usage', extraUsageText(q.extraUsage)));
+    if (q?.live?.isUsingOverage === true) sec.append(row('Billing now', 'Extra Usage — your plan window is used up', 'warn'));
     return sec;
 }
 
@@ -1076,8 +1077,10 @@ function boot() {
             const [l, s] = makeSelectRow('Backend', 'stSubsClaudeBackend', BACKENDS, settings.claude.backend, (v) => { settings.claude.backend = oneOf(BACKENDS, v, 'subscription'); onBackendChange(); }, CLAUDE_BACKEND_LABELS);
             claude.append(l, s);
             claude.append(makeHelp(
-                'Subscription only (default) bills your Claude Pro/Max login and never an API key — only Fast mode and the 1M ' +
-                'variants of Opus/Sonnet 4.6 can draw Extra Usage credits (see below). Log in on the SillyTavern host with ' +
+                'Subscription only (default) bills your Claude Pro/Max login and never an API key — before each request the ' +
+                'plugin checks that the CLI really uses that login. If Extra Usage is enabled on your Claude account, requests ' +
+                'past your plan window (and Fast mode / the 4.6 "(1M context)" entries) are billed as Extra Usage; turn it off ' +
+                'in your Claude account settings if you do not want that. Log in on the SillyTavern host with ' +
                 '`claude auth login` (on a headless machine: `claude setup-token`). Auto always starts on the subscription and ' +
                 'moves a request to the API key only when your plan\'s usage window is exhausted or rate limiting persists after ' +
                 'retries — never just because a key exists or no login was found. API bills an Anthropic key or a compatible ' +
@@ -1093,20 +1096,22 @@ function boot() {
                 'A level the model does not support steps down automatically (xhigh → high on the 4.6 models); Opus 4.5, ' +
                 'Sonnet 4.5 and Haiku 4.5 take no effort setting.',
             ));
-            const [tl, ts] = makeSelectRow('Thinking mode', 'stSubsClaudeThinking', CLAUDE_THINKING, settings.claude.thinking, (v) => { settings.claude.thinking = oneOf(CLAUDE_THINKING, v, 'adaptive'); saveSettingsDebounced(); }, { adaptive: 'Adaptive (model decides — recommended)', on: 'On (every reply)', off: 'Off (ignored by always-thinking models)' });
+            const [tl, ts] = makeSelectRow('Thinking mode', 'stSubsClaudeThinking', CLAUDE_THINKING, settings.claude.thinking, (v) => { settings.claude.thinking = oneOf(CLAUDE_THINKING, v, 'adaptive'); saveSettingsDebounced(); }, { adaptive: 'Adaptive (model decides — recommended)', on: 'On (fixed budget on the 4.x models)', off: 'Off (ignored by always-thinking models)' });
             claude.append(tl, ts);
-            claude.append(makeHelp('Fable 5 / 5.1, Opus 5.5 and Sonnet 5.5 always think, so Off is ignored there. Off works on every other model.'));
+            claude.append(makeHelp('Fable 5 / 5.1, Opus 5.5 and Sonnet 5.5 always think, so Off is ignored there; Off works on every other model. On forces a fixed thinking budget where a model allows one (Opus/Sonnet 4.6 and the 4.5 models); on newer models it behaves like Adaptive. Thinking counts toward the max response length.'));
             claude.append(makeHelp(
                 'Context: Fable, Opus 4.7 and newer, and Sonnet 5 and newer have a 1M-token window built in, so each is listed ' +
                 'once (older saved "[1m]" ids still work). Only Opus 4.6 and Sonnet 4.6 keep a separate "(1M context)" entry, ' +
-                'which may draw Extra Usage credits.',
+                'which may draw Extra Usage credits; if your plan has none for 1M, the request runs at 200k and 1M is tried ' +
+                'again after an hour.',
             ));
             claude.append(makeCheckboxRow('Session resume (real multi-turn context + prompt caching)', 'stSubsClaudeResume', settings.claude.useResume, (v) => { settings.claude.useResume = v; saveSettingsDebounced(); }));
             claude.append(makeHelp('ON (recommended): the chat is replayed as a genuine multi-turn Claude session — better who-said-what tracking and working prompt caching. OFF flattens the chat into one text block (troubleshooting only).'));
             claude.append(makeCheckboxRow('Identity mode (tell the model which Claude it is)', 'stSubsClaudeIdentity', settings.claude.identityMode, (v) => { settings.claude.identityMode = v; saveSettingsDebounced(); }));
             claude.append(makeHelp(
                 'OFF (recommended): your system prompt, after the Claude CLI\'s fixed one-line agent identity and its short ' +
-                'environment note (platform, model name, date), which no subscription setting removes. ON: also adds one line ' +
+                'environment note (working directory — a plugin folder, platform, shell, OS, model name, date), which no ' +
+                'subscription setting removes. ON: also adds one line ' +
                 'naming the exact model (e.g. Claude Opus 5.5), so a character can answer "which model are you?". ON adds no ' +
                 'Claude Code preamble and no details about this machine.',
             ));
@@ -1191,7 +1196,7 @@ function boot() {
 
         content.append(el('small', 'st-subs-hint',
             'Leave SillyTavern\'s native "Reasoning Effort" dropdown on Auto — the per-provider effort above replaces it. ' +
-            'Temperature/Top-P only apply on the API backends (the CLIs expose no sampling controls).'));
+            'Temperature/Top-P only apply on Gemini\'s API backend (the CLIs expose no sampling controls).'));
 
         return drawer;
     }
