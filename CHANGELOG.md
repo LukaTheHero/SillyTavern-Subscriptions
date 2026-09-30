@@ -10,7 +10,7 @@ through Extensions → Manage extensions. Gemini now needs agy 1.2.11+
 **New**
 - Claude Opus 5.5, Sonnet 5.5 and Sonnet 5 (bundled Claude Code CLI 2.1.285).
 - Fable, Opus 4.7+ and Sonnet 5+ use their full 1M context without a separate "(1M context)" entry; old saved `[1m]` ids keep working.
-- Codex verbosity setting (default medium).
+- Codex verbosity setting (default medium). Codex effort "Auto" now sends the model's own default instead of inheriting the coding effort from your Codex config (which could be xhigh/ultra).
 - Status panel shows the Claude CLI version, readiness per selected backend, per-model weekly caps and Extra Usage in real currency.
 
 **Fixed**

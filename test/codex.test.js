@@ -709,16 +709,20 @@ test('app-server: a process that dies mid-request fails the caller with its stde
     });
 });
 
-test('an ultra default in config.toml is never sent as ultra', async () => {
+test('no effort chosen: the model default is sent, never the config.toml coding preference', async () => {
     const home = mkdtempSync(join(tmpdir(), 'st-subs-codex-cfg-'));
     writeFileSync(join(home, 'config.toml'), 'model_reasoning_effort = "ultra"\n');
     const server = new FakeServer({ codexHome: home, script: (s) => { s.emit('item/agentMessage/delta', { itemId: 'm1', delta: 'x' }); s.complete(); } });
     const { writer } = makeWriter();
     await runAppServerTurn({ server, messages: MESSAGES, model: 'gpt-6-astra', settings: settings({}), writer, modelProvider: 'openai' });
-    assert.equal(server.calls.find((c) => c.method === 'turn/start').params.effort, 'max');
+    // gpt-6-astra's own default (catalog) is 'low'; the "ultra" in config.toml is the user's coding setting.
+    assert.equal(server.calls.find((c) => c.method === 'turn/start').params.effort, 'low');
     const plain = new FakeServer({ script: (s) => { s.emit('item/agentMessage/delta', { itemId: 'm1', delta: 'x' }); s.complete(); } });
     await runAppServerTurn({ server: plain, messages: MESSAGES, model: 'gpt-5.5', settings: settings({}), writer: makeWriter().writer, modelProvider: 'openai' });
-    assert.equal(plain.calls.find((c) => c.method === 'turn/start').params.effort, undefined, 'no effort chosen → model default');
+    assert.equal(plain.calls.find((c) => c.method === 'turn/start').params.effort, 'medium', 'no effort chosen → the model default, explicitly');
+    const ultra = new FakeServer({ script: (s) => { s.emit('item/agentMessage/delta', { itemId: 'm1', delta: 'x' }); s.complete(); } });
+    await runAppServerTurn({ server: ultra, messages: MESSAGES, model: 'gpt-6-astra', settings: settings({ effort: 'ultra' }), writer: makeWriter().writer, modelProvider: 'openai' });
+    assert.equal(ultra.calls.find((c) => c.method === 'turn/start').params.effort, 'max', 'ultra is never sent as ultra');
 });
 
 test('codexStatus: a reported AGENTS.md that was removed since no longer blocks', async () => {

@@ -174,7 +174,7 @@ Settings in the panel apply from the next message — no reconnect needed.
 | | Identity mode | Adds one line naming the exact model (for cards that ask the model who it is). No coding preamble. |
 | | Fast mode | Opus 4.8 / 5 / 5.5 only. Draws Extra Usage credits (billed separately, not your plan window). |
 | Codex | Backend | **Subscription only (default)** — needs a ChatGPT login; an API-key login in Codex is refused, never billed, and so is a `config.toml` that points `openai_base_url` / `chatgpt_base_url` at a non-OpenAI host. *Auto* runs the Codex CLI exactly as configured — a relay provider or an API-key login there is billed on every request — and uses a key directly only when the CLI is missing or signed out. *API* uses `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for a relay) directly. |
-| | Reasoning effort | Clamped to the model's supported levels. |
+| | Reasoning effort | Auto = the model's own default (e.g. medium on GPT-5.5); the `model_reasoning_effort` in your Codex `config.toml` (a coding setting) is ignored. Clamped to the model's supported levels. |
 | | Verbosity | Default (medium) / low / high. |
 | | Service tier | Standard / Fast (priority) / Ultrafast where offered. |
 | | Reasoning summary | auto / concise / detailed / none. |

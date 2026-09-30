@@ -1145,7 +1145,7 @@ function boot() {
             ));
             const [el2, es] = makeSelectRow('Reasoning effort', 'stSubsCodexEffort', CODEX_EFFORTS, settings.codex.effort, (v) => { settings.codex.effort = oneOf(CODEX_EFFORTS, v, 'auto'); saveSettingsDebounced(); }, { auto: 'Auto (model default)', max: 'max (deepest)' });
             codex.append(el2, es);
-            codex.append(makeHelp('Clamped to what the chosen model supports (the model list is read live from your account). A saved "ultra" setting is treated as max — for roleplay they are the same.'));
+            codex.append(makeHelp('Auto sends the default of the chosen model (e.g. medium for GPT-5.5) — the model_reasoning_effort in your Codex CLI config (a coding setting) is not used. Clamped to what the chosen model supports (the model list is read live from your account). A saved "ultra" setting is treated as max — for roleplay they are the same.'));
             const [stl, sts] = makeSelectRow('Service tier', 'stSubsCodexTier', CODEX_TIERS, settings.codex.serviceTier, (v) => { settings.codex.serviceTier = oneOf(CODEX_TIERS, v, 'standard'); saveSettingsDebounced(); }, { standard: 'Standard', priority: 'Fast (priority — 2× speed, more usage)', ultrafast: 'Ultrafast (where offered)' });
             codex.append(stl, sts);
             const [rl, rs] = makeSelectRow('Reasoning summary', 'stSubsCodexSummary', CODEX_SUMMARIES, settings.codex.reasoningSummary, (v) => { settings.codex.reasoningSummary = oneOf(CODEX_SUMMARIES, v, 'auto'); saveSettingsDebounced(); }, { auto: 'Auto', concise: 'Concise', detailed: 'Detailed', none: 'None' });
