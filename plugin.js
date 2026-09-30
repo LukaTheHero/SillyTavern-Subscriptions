@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { startStandaloneListener, stopStandaloneListener, handleStatus, handleQuota, handleModels } from './lib/listener.js';
 import { stopAppServer } from './lib/codex/app-server.js';
+import { sdkUpdateNeeded } from './lib/claude/sdk-loader.js';
 import { envInt, envString, envFlag } from './lib/common/platform.js';
 
 const DEFAULT_PORT = 8901;
@@ -295,6 +296,11 @@ export function mountStRoutes(router) {
 export async function init(router) {
     mountStRoutes(router);
     installUiExtension();
+    const stale = sdkUpdateNeeded();
+    if (stale) {
+        console.warn(`[${info.id}] dependencies out of date: Agent SDK ${stale.installed} installed, ${stale.required} required. ` +
+            'Run `npm install` in plugins/SillyTavern-Subscriptions and restart SillyTavern (SillyTavern updates plugin code but not its dependencies).');
+    }
 
     const port = envInt('ST_SUBSCRIPTIONS_PORT', DEFAULT_PORT);
     const host = envString('ST_SUBSCRIPTIONS_HOST', DEFAULT_HOST);
