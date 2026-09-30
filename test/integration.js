@@ -3,22 +3,32 @@
 //   node test/integration.js                 # status + model lists + 501 check
 //   LIVE=1 node test/integration.js          # + one tiny chat per usable provider (spends quota!)
 //   LIVE=claude,codex node test/integration.js
-//   PORT=8911 STREAM=0 node test/integration.js
+//   ST_SUBSCRIPTIONS_TEST_PORT=8911 STREAM=0 node test/integration.js
+//   BACKEND=auto LIVE=codex node test/integration.js   # opt in to key/relay billing
 //
-// Never run this against the port SillyTavern's copy of the plugin already
-// uses — pick a spare one (default 8911).
+// Live chats use backend "subscription" unless BACKEND says otherwise — the
+// harness never bills an API key or relay by default. Never run this against
+// the port SillyTavern's copy of the plugin already uses (8901).
 
 import { startStandaloneListener, stopStandaloneListener } from '../lib/listener.js';
 import { stopAppServer } from '../lib/codex/app-server.js';
 
-const PORT = parseInt(process.env.PORT ?? '8911', 10);
+const PORT = parseInt(process.env.ST_SUBSCRIPTIONS_TEST_PORT ?? '8911', 10);
+if (PORT === 8901) {
+    console.error("Refusing to use port 8901 (SillyTavern's live listener). Pick another ST_SUBSCRIPTIONS_TEST_PORT.");
+    process.exit(2);
+}
+const BACKEND = process.env.BACKEND ?? 'subscription';
+if (!['subscription', 'auto', 'api'].includes(BACKEND)) throw new Error('BACKEND must be subscription | auto | api');
+if (BACKEND !== 'subscription') console.warn(`BACKEND=${BACKEND}: live requests may be billed to API keys or relays`);
 const HOST = '127.0.0.1';
 const BASE = `http://${HOST}:${PORT}`;
 const LIVE = (process.env.LIVE ?? '').toLowerCase();
-const liveProviders = LIVE === '1' || LIVE === 'true' || LIVE === 'all' ? ['claude', 'codex', 'gemini'] : LIVE.split(',').map((s) => s.trim()).filter(Boolean);
+const KNOWN = ['claude', 'codex', 'gemini'];
+const liveProviders = ['1', 'true', 'all'].includes(LIVE) ? KNOWN : LIVE.split(',').map((s) => s.trim()).filter((p) => KNOWN.includes(p));
 const STREAM = process.env.STREAM !== '0';
 const MODELS = {
-    claude: process.env.CLAUDE_MODEL ?? 'claude-fable-5-1',
+    claude: process.env.CLAUDE_MODEL ?? 'claude-opus-5-5',
     codex: process.env.CODEX_MODEL ?? 'gpt-5.5',
     gemini: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash-low',
 };
@@ -74,7 +84,7 @@ async function chat(provider, { stream, stop }) {
             { role: 'system', content: 'You are Captain Redbeard, a pirate in a text roleplay. Stay in character. Keep replies under 40 words.' },
             { role: 'user', content: 'Ahoy! Tell me in one sentence what you think of the sea, then stop.' },
         ],
-        subscriptions: { show_reasoning: true, [provider]: { backend: process.env.BACKEND ?? 'auto' } },
+        subscriptions: { show_reasoning: true, [provider]: { backend: BACKEND } },
     };
     if (stop) body.stop = stop;
     const t0 = Date.now();
@@ -106,7 +116,7 @@ async function multiTurn(provider) {
             { role: 'user', content: 'Tobias: Rye, you said rye. Three scoops it is. What goes in next?' },
             { role: 'assistant', content: 'Marta: Good memory. Next comes the' },
         ],
-        subscriptions: { show_reasoning: false, [provider]: { backend: process.env.BACKEND ?? 'auto' } },
+        subscriptions: { show_reasoning: false, [provider]: { backend: BACKEND } },
     };
     const t0 = Date.now();
     const res = await fetch(`${BASE}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -126,7 +136,7 @@ async function main() {
         for (const p of ['claude', 'codex', 'gemini']) {
             const s = status.providers[p];
             console.log(`      ${p}: ok=${s.ok} available=${s.available}${s.message ? ' — ' + s.message : ''}`);
-            if (p === 'claude') console.log(`        sdk ${s.sdkVersion}, cli ${s.cli?.source}, login ${s.credential?.present ? s.credential.subscriptionType : 'none'}, api ${s.api?.available ? s.api.source : 'none'}`);
+            if (p === 'claude') console.log(`        sdk ${s.sdkVersion}, cli ${s.cli?.version ?? '?'} (${s.cli?.source}), login ${s.credential?.present === true ? s.credential.subscriptionType : s.credential?.present}, api ${s.api?.available ? s.api.source : 'none'}`);
             if (p === 'codex') console.log(`        cli ${s.cli?.version ?? '-'} (${s.cli?.source ?? '-'}), home ${s.home}, login ${s.login?.loggedIn ? s.login.mode : 'none'}, provider ${s.config?.modelProvider}, api ${s.api?.available ? s.api.source : 'none'}, catalog ${s.catalogSource}`);
             if (p === 'gemini') console.log(`        cli ${s.cli?.version ?? '-'} (${s.cli?.source ?? '-'}), routing ${s.settings?.routing}, api ${s.api?.available ? s.api.source : 'none'}`);
         }
@@ -148,10 +158,14 @@ async function main() {
         record('unknown model → 400', bad.status === 400);
 
         const quota = await (await fetch(`${BASE}/v1/usage/quota`)).json();
-        record('GET /v1/usage/quota', quota.ok === true, `claude ${quota.claude?.ok ? quota.claude.source : 'n/a'}, codex ${quota.codex ? 'windows ' + quota.codex.windows?.length : 'n/a'}`);
+        record('GET /v1/usage/quota', typeof quota.fetchedAt === 'number' && 'claude' in quota, `claude ${quota.claude?.ok ? quota.claude.source : 'n/a'}, codex ${quota.codex ? 'windows ' + quota.codex.windows?.length : 'n/a'}`);
 
         for (const p of liveProviders) {
-            if (!status.providers[p]?.available) { record(`chat ${p}`, false, 'provider unavailable on this host — skipped'); continue; }
+            if (!status.providers[p]?.available) { console.log(`SKIP  chat ${p} — provider unavailable on this host`); continue; }
+            if (BACKEND === 'subscription' && status.providers[p]?.backends?.subscription?.ready === false) {
+                console.log(`SKIP  chat ${p} — subscription not ready (${status.providers[p].backends.subscription.message ?? 'no login'})`);
+                continue;
+            }
             const ns = await chat(p, { stream: false });
             record(`chat ${p} (json)`, ns.ok, `${ns.ms}ms ${ns.detail}`);
             if (STREAM) {

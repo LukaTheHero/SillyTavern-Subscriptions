@@ -23,15 +23,18 @@ if [ "$node_major" -lt 18 ]; then
 fi
 echo "node $(node --version) on $(uname -s)/$(uname -m)${TERMUX_VERSION:+ (Termux $TERMUX_VERSION)}"
 
-echo "-- npm install (keeps optional platform packages: the Claude CLI ships inside the Agent SDK)"
-npm install --no-audit --no-fund --omit=dev
+echo "-- npm install (with optional platform packages: the Claude CLI ships inside the Agent SDK)"
+npm install --no-audit --no-fund --omit=dev --include=optional
 
-# Termux: the Agent SDK looks for a platform package keyed on 'android' and finds
-# none; the plugin then falls back to a `claude` on PATH. Say so if there is none.
-if [ -n "${TERMUX_VERSION:-}" ] || [ "$(uname -o 2>/dev/null || true)" = "Android" ]; then
-    if ! command -v claude >/dev/null 2>&1 && ! ls node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude >/dev/null 2>&1; then
-        echo "-- Termux note: no 'claude' found. Install Claude Code (npm i -g @anthropic-ai/claude-code) and run 'claude login',"
-        echo "   or set ST_SUBSCRIPTIONS_CLAUDE_PATH to a claude binary before starting SillyTavern."
+# The Claude Code CLI comes from an optional per-platform package. A user-level
+# `omit=optional` in ~/.npmrc drops it silently — check.
+if ! node --input-type=module -e "const m = await import('./lib/claude/sdk-loader.js'); process.exit(m.claudeCliSummary().path ? 0 : 3)" 2>/dev/null; then
+    if [ -n "${TERMUX_VERSION:-}" ] || [ "$(uname -o 2>/dev/null || true)" = "Android" ]; then
+        echo "-- Termux note: Claude Code has no native Android build, so Claude cannot run directly on Termux."
+        echo "   Run SillyTavern inside proot-distro (Debian/Ubuntu) for Claude, or set ST_SUBSCRIPTIONS_CLAUDE_PATH to a"
+        echo "   claude binary known to run here. Codex and Gemini are unaffected."
+    else
+        echo "!! Claude Code CLI binary missing — check ~/.npmrc for omit=optional / optional=false and re-run this script." >&2
     fi
 fi
 
@@ -44,7 +47,7 @@ Done. Make sure SillyTavern's config.yaml has:  enableServerPlugins: true
 Then start SillyTavern, hard-refresh the browser, open Extensions → Subscriptions → Connect.
 
 Logins (run as the same OS user that runs SillyTavern):
-  Claude   claude login            (or: claude setup-token → CLAUDE_CODE_OAUTH_TOKEN for headless boxes)
+  Claude   claude auth login       (or: claude setup-token → CLAUDE_CODE_OAUTH_TOKEN for headless boxes)
   Codex    codex login             (writes auth.json into the Codex home the CLI reports)
   Gemini   agy                     (sign in once interactively; Ctrl-C after the browser flow completes)
 EOF

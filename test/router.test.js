@@ -23,3 +23,9 @@ test('resolveProvider precedence: model > settings > path', () => {
     assert.deepEqual(resolveProvider({ model: 'mystery', pathProvider: 'claude' }), { provider: 'claude', reason: 'path' });
     assert.deepEqual(resolveProvider({ model: 'mystery' }), { provider: null, reason: 'unknown' });
 });
+
+test('router re-exports PROVIDERS and drops the unused isProvider helper', async () => {
+    const mod = await import('../lib/router.js');
+    assert.deepEqual(mod.PROVIDERS, ['claude', 'codex', 'gemini']);
+    assert.equal('isProvider' in mod, false);
+});

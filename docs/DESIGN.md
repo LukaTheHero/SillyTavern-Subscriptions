@@ -22,58 +22,115 @@ shows.
 ## Request settings channel
 
 SillyTavern forwards `custom_include_body` (YAML) unconditionally for Custom
-sources, so the panel injects:
+sources, so the panel injects (merged into the user's own Include Body as a
+structured object, with SillyTavern's bundled YAML library):
 
 ```yaml
 subscriptions:
   show_reasoning: true
-  claude: { backend, effort, thinking, identity_mode, use_resume, fast_mode }
-  codex:  { backend, effort, service_tier, reasoning_summary }
+  claude: { backend, effort, thinking, thinking_budget, identity_mode, use_resume, fast_mode }
+  codex:  { backend, effort, service_tier, reasoning_summary, verbosity }
   gemini: { backend, effort }
 ```
 
 The three legacy namespaces (`claude_subscription`, `codex_subscription`,
 `gemini_subscription`) are still parsed so an old panel keeps working during
 migration. Precedence: unified namespace > legacy namespace > OpenAI
-`reasoning_effort`.
+`reasoning_effort` / `verbosity`. Fast mode (it draws Extra Usage) is read only
+from the namespaces, never from a generic top-level field.
+
+Requests sent through Connection Manager profiles never fire
+`CHAT_COMPLETION_SETTINGS_READY`, so they arrive without the block and get the
+server defaults. There is deliberately no server-side "default settings"
+store: it would apply billing choices to every client of the listener.
+
+## Reading the message list
+
+`partitionConversation()` (lib/common/messages.js) is the single reading all
+three providers share:
+
+* only the **leading** run of system messages is the system prompt;
+* later system messages (Author's Note / World Info at depth, Impersonate,
+  quiet prompts, group nudges, post-history instructions) become user turns
+  **in place**, adjacent user turns merged — the same conversion
+  SillyTavern's own Claude converter does;
+* a reply is a continuation/prefill **only** when the literal last message is
+  an assistant message. The continued message stays in the history (the
+  model sees its own words as its turn), followed by the plain
+  "[Continue your last message…]" instruction.
 
 ## Backends per provider
 
 | Provider | `subscription` | `api` | `auto` |
 | --- | --- | --- | --- |
-| Claude | Agent SDK with the OAuth login (`claude login`) | SDK with `ANTHROPIC_BASE_URL` + key/token and `CLAUDE_CONFIG_DIR` pointed at an empty plugin dir so the OAuth login is invisible (no credential stashing) | subscription; a quota-exhausted reply retries the same request on the API key when one exists |
-| Codex | app-server, `modelProvider: "openai"` | direct OpenAI-compatible HTTP when a key exists (clean `messages[]`), else app-server with the non-OpenAI provider from `config.toml` | app-server exactly as the CLI is configured (so a provider switch made in the CLI is honoured); direct HTTP when no CLI but a key |
-| Gemini | `agy` print mode | direct HTTP with `GEMINI_API_KEY` to `GOOGLE_GEMINI_BASE_URL` (default: Google's OpenAI-compatible endpoint) | agy when installed, else key |
+| Claude | Agent SDK with the Claude login, account-isolated (below) | SDK with `ANTHROPIC_BASE_URL` + key/token and `CLAUDE_CONFIG_DIR` pointed at an empty plugin dir so the OAuth login is invisible | the subscription first; a quota-exhausted reply (or a rate limit that outlasts the retries) retries the same request on the API key when one exists. A key existing, or a login the plugin cannot see, never switches billing. |
+| Codex | app-server, `modelProvider: "openai"`, only for a ChatGPT login (`account/read` type `chatgpt`); an API-key login is refused | direct OpenAI-compatible HTTP when a key exists (clean `messages[]`), else app-server with the non-OpenAI provider from `config.toml` | app-server exactly as the CLI is configured (so a provider switch made in the CLI is honoured); direct HTTP when no CLI but a key |
+| Gemini | `agy` print mode on the Google sign-in; refused when agy's settings route it to an API key / relay | direct HTTP with the key to its paired base URL (default: Google's OpenAI-compatible endpoint) | agy as configured, else key |
 
 Default backend is `subscription` for every provider — this is a subscription
 plugin, so a key is only ever billed after the user opts in (Auto or API).
-Settings saved by 3.0.0 (default Auto) are migrated once by the panel.
 
-## Claude specifics (carried over + fixed)
+## Claude specifics
 
-* Synthetic session resume (`resume` + one-shot `SessionStore`) gives real
-  multi-turn context and prompt caching; fold fallback for first turns.
-* **Agent SDK ≥ 0.3.263.** 0.2.141 bundles Claude Code 2.1.141, and Anthropic
-  now rejects Fable on anything below 2.1.251 ("does not support this model").
+* **Agent SDK ≥ 0.3.285** (bundled Claude Code 2.1.285). The CLI version
+  decides model support: Opus 5.5 needs 2.1.280+, Sonnet 5.5 2.1.284+, Fable
+  2.1.251+. `/status` reports the CLI version next to the SDK version.
+* The catalog mirrors the CLI's baked model table: context window (native 1M
+  vs a `[1m]` beta variant), thinking family (always / adaptive / hybrid /
+  budget) and effort levels. The CLI does the final request shaping (it drops
+  `disabled` on always-thinking models, turns adaptive into a budget on old
+  models, lowers unsupported effort levels); the plugin mirrors it to log
+  honestly and to avoid 400s. `[1m]` on a native-1M model resolves to the
+  plain model; on Opus/Sonnet 4.6 it uses the tier alias + env pin.
+* **Isolation recipe** (everything verified by capturing the exact request
+  body against a local server):
+  * options: custom `systemPrompt` (`snapshot: false`), `tools: []`,
+    `skills: []`, `settingSources: []`, `mcpServers: {}` + `strictMcpConfig`,
+    `verbatimPrompts` (no `@file` expansion, no slash commands, no turn-start
+    attachments), `permissionMode: 'dontAsk'` (bypass mode exits as root),
+    a fixed `title` (no title-generation side call), `persistSession: false`
+    on the non-resume paths;
+  * env (lib/claude/env.js): every `ANTHROPIC_*` / `CLAUDE_CODE_*` / `OTEL_*`
+    and thinking/caching/compaction override scrubbed; attachments, git
+    instructions, the token-count reminder, terminal titles, auto-compaction
+    and claude.ai MCP connectors off;
+  * account: the CLI injects the account email from the account record in its
+    config dir. The subprocess therefore gets an empty plugin-owned
+    `CLAUDE_CONFIG_DIR` plus the login as `CLAUDE_CODE_OAUTH_TOKEN` (read from
+    the credentials file or the macOS Keychain, refreshed by the plugin —
+    the CLI cannot refresh an env token). When no token can be read, the
+    CLI's own store is used and the email is back; on an auth failure in
+    isolated mode the request retries once through the CLI's own store.
+  * what remains: the mandatory billing header + one-line agent identity
+    (subscription auth requires it) and a short environment note (platform,
+    shell, OS, model name, date). The only switch for the latter
+    (`CLAUDE_CODE_SIMPLE`) also disables OAuth.
+* **Working directory matters to the safety classifier.** The environment
+  note shows the working directory. With the drive root or a nondescript
+  folder, Opus 5.5's classifier refused plain roleplay lines as "cyber"
+  (deterministically); from a folder named like a chat app it answered. The
+  subprocess runs in `<plugin>/.runtime/SillyTavern-chat` (nothing is written
+  there). A cwd inside the Claude desktop app's virtualised AppData also
+  fails to spawn (`ENOTCONN`).
+* **No model substitution, ever.** The CLI's refusal fallback (e.g. Opus 5.5 →
+  Opus 5 / 4.8), same-model refusal retry, model-access fallback and legacy
+  remap are switched off by env. Refusals are detected structurally
+  (`model_refusal_no_fallback`, `stop_reason: "refusal"`) and are final. The
+  served-model guard (init, every `message_start`, every assistant message)
+  compares canonical ids for every model, as a backstop.
+* **Max response length.** When a reply hits `max_tokens` the CLI injects
+  hidden "resume" turns up to three times. The plugin aborts at the first
+  `message_delta` with `stop_reason: "max_tokens"` and finishes with
+  `finish_reason: "length"`. Partial messages are always on internally; text
+  is forwarded only from `text` blocks.
 * The CLI reports locally generated errors as an assistant message with
-  `model: "<synthetic>"`. The old served-model guard tripped on that and hid the
-  real text ("Model substitution refused … resolved to <synthetic>"). Now the
-  synthetic text *is* the error, classified like any other.
-* `rate_limit_event` stream messages feed the quota meter for free (the OAuth
-  usage endpoint remains the on-demand source).
-* **Refusals are final.** A Fable safeguard refusal is returned as an error and
-  the request is never re-sent or moved to another model; the served-model
-  guard (checked on init, on the stream's `message_start`, and on every
-  assistant message) also rejects any CLI-side fallback to Opus before a token
-  is emitted. The user decides: reword, step back, or pick Opus explicitly.
-  The prefill wording was changed to the plain "[Continue your last message…]"
-  form because Fable's classifier flagged the old "reply as if you began
-  with…" template on resumed sessions.
-* The subprocess env scrubs `CLAUDECODE`/`CLAUDE_CODE_*` so SillyTavern started
-  from inside a Claude Code terminal still works.
-* Subprocess `cwd` must be a real path: spawning from inside the Claude desktop
-  app's virtualised AppData fails with `ENOTCONN` — the plugin uses
-  `<plugin>/.runtime/`.
+  `model: "<synthetic>"`; its text *is* the error.
+* Synthetic session resume (`resume` + one-shot `SessionStore`) gives real
+  multi-turn context and prompt caching. The SDK materialises the history in
+  its own temp config dir and deletes it when the subprocess exits.
+* Error classifiers match HTTP status codes only as status codes ("API
+  Error: 429", "(429)") — bare digits appear in token counts, message indexes
+  and request ids.
 
 ## Codex specifics
 
@@ -81,15 +138,22 @@ Settings saved by 3.0.0 (default Auto) are migrated once by the panel.
   over stdio) streams `item/agentMessage/delta`, reasoning summaries, token
   usage and rate limits, accepts `baseInstructions` (replacing the coding
   system prompt), `ephemeral: true` threads, and `turn/interrupt` (used for
-  stop sequences and client disconnects). One process is kept alive.
-* `--ignore-user-config` is not available on app-server and would drop the
-  auth/provider setup anyway; isolation is per-name `-c
-  mcp_servers.X.enabled=false`, `plugins."X".enabled=false`, `notify=[]`,
-  `project_doc_max_bytes=0`, read-only sandbox, approval policy `never`, and
-  every server→client approval request is refused.
-* The CLI may use `~/.codex-cli` (desktop-app machines) or `~/.codex`; the
-  `initialize` response reports the real home and the isolation flags are
-  recomputed against it if the guess was wrong.
+  stop sequences and client disconnects). One process is kept alive; threads
+  are released with `thread/unsubscribe` (ephemeral threads cannot be deleted).
+* Isolation uses `-c` overrides only (an unknown key never breaks startup):
+  the agent features (shell, patch, web search, MCP resources, multi-agent…)
+  off, the environment/permissions/apps/collaboration/skills prompt blocks
+  off, `project_doc_max_bytes=0`, `developerInstructions: ''`, read-only
+  sandbox, approval policy `never`, every approval request refused, and any
+  tool item that still starts ends the turn as an error. After `initialize`
+  the effective config (`config/read`) is checked; an MCP server that is
+  still enabled means one relaunch with it off, then fail closed.
+* The global `AGENTS.md` in the Codex home is always injected and has no
+  switch; `thread/start` reports it in `instructionSources`, and a non-empty
+  one refuses the chat before any model call.
+* `model/rerouted` and cyber/misalignment policy errors are hard errors; a
+  `thread/start` that reports a different model is refused. `ultra` effort is
+  sent as `max` (or `xhigh`) — `ultra` switches Codex to multi-agent mode.
 * Model catalog is live (`model/list`), then `models_cache.json`, then a static
   snapshot. Efforts are clamped to what the model supports.
 
@@ -97,17 +161,38 @@ Settings saved by 3.0.0 (default Auto) are migrated once by the panel.
 
 * Prompt on **stdin** with `--input-format text` (no `-p`): avoids the
   command-line length limit on long chats.
+* Every turn runs a plugin-owned workspace agent
+  (`.runtime/gemini-cwd/.agents/agents/st-subscriptions-chat/agent.md`:
+  `inheritCustomizations: false`, `inheritMcp: false`,
+  `excludeDefaultComponents: true`, `tools: []`) with `--sandbox` and
+  `--disable-slash-commands`. agy silently falls back to its default agent for
+  an unknown `--agent`, so each run writes its own log and the turn is killed
+  if the log shows the fallback. Any tool step kills the process tree.
+* agy retries safety-blocked replies by itself; the runner stops at the first
+  blocked reply (422, never retried). Persistent 429s end the turn after
+  ~11 s instead of waiting for the watchdog.
 * agy never streams thoughts in stream-json mode; reasoning display only
-  works on the `api` backend. Tools cannot be disabled by flag, so the prompt
-  carries a text-only instruction and cwd is the plugin scratch dir.
+  works on the `api` backend. Images are not supported on the agy path.
+
+## HTTP layer
+
+* Cancellation: one AbortController per chat request, aborted on the
+  response's `close` before it finished (never `req` 'close', which fires as
+  soon as the body is read on Node ≥ 16) and on plugin shutdown. Runners get
+  its signal (lib/common/abort.js).
+* Streaming responses start at once with an SSE keep-alive comment every
+  15 s, so proxies with first-byte timeouts survive long silent thinking.
+  Early errors then arrive as an SSE error event (SillyTavern shows it as a
+  toast).
+* Access: loopback Host allowlist (DNS rebinding); a non-loopback bind needs
+  `ST_SUBSCRIPTIONS_TOKEN`. Model ids are validated before routing.
 
 ## Platform
 
-* Executable resolution (`lib/common/exec.js`) never spawns Windows `.cmd`
-  shims or npm's POSIX shell shims: it prefers `.exe`, then the package's JS
-  launcher under the global `node_modules` (run with the current Node), then
-  native-installer paths, then PATH. Termux adds `$PREFIX/bin` and
-  `$PREFIX/lib/node_modules`.
-* On Android the Agent SDK cannot find its platform package (keyed on
-  `process.platform`); the plugin passes the musl build or a global `claude`
-  via `pathToClaudeCodeExecutable`.
+* Nothing is ever spawned through a shell. Windows `.cmd` shims are resolved
+  to the npm JS launcher they wrap and run with the current Node; a shim that
+  cannot be resolved is refused. Resolution prefers `.exe`, then the
+  package's JS launcher under the global `node_modules`, then native-installer
+  paths, then PATH. Termux adds `$PREFIX/bin` and `$PREFIX/lib/node_modules`.
+* Claude Code has no Android build; on Termux a binary is accepted only after
+  `--version` actually runs. The supported route is proot-distro.

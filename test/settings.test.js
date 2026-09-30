@@ -84,3 +84,42 @@ test('invalid values fall back instead of erroring', () => {
     assert.equal(s.claude.backend, 'subscription');
     assert.equal(s.codex.serviceTier, 'standard');
 });
+
+test('codex verbosity: namespace first, then the top-level OpenAI field, validated', () => {
+    assert.equal(extractRequestSettings({}).codex.verbosity, undefined);
+    assert.equal(extractRequestSettings({ verbosity: 'high' }).codex.verbosity, 'high');
+    assert.equal(extractRequestSettings({ verbosity: 'HIGH' }).codex.verbosity, 'high');
+    assert.equal(extractRequestSettings({ verbosity: 'high', subscriptions: { codex: { verbosity: 'low' } } }).codex.verbosity, 'low');
+    // 'auto' (ST's default) and junk mean "not chosen" — the runner picks.
+    assert.equal(extractRequestSettings({ verbosity: 'auto' }).codex.verbosity, undefined);
+    assert.equal(extractRequestSettings({ subscriptions: { codex: { verbosity: 'auto' } }, verbosity: 'medium' }).codex.verbosity, 'medium');
+    assert.equal(extractRequestSettings({ subscriptions: { codex: { verbosity: 'loud' } } }).codex.verbosity, undefined);
+    assert.equal(extractRequestSettings({ codex_subscription: { verbosity: 'medium' } }).codex.verbosity, 'medium');
+});
+
+test('claude fast mode (Extra Usage) is read only from the subscriptions / legacy namespaces', () => {
+    assert.equal(extractRequestSettings({ fast_mode: true }).claude.fastMode, false);
+    assert.equal(extractRequestSettings({ fastMode: true }).claude.fastMode, false);
+    assert.equal(extractRequestSettings({ subscriptions: { claude: { fast_mode: true } } }).claude.fastMode, true);
+    assert.equal(extractRequestSettings({ subscriptions: { claude: { fastMode: true } } }).claude.fastMode, true);
+    assert.equal(extractRequestSettings({ claude_subscription: { fast_mode: true } }).claude.fastMode, true);
+    assert.equal(extractRequestSettings({ subscriptions: { claude: { fast_mode: 'yes' } } }).claude.fastMode, false);
+});
+
+test('nothing a request sends can opt into key billing by accident', () => {
+    for (const backend of [undefined, '', 'cloud', 'relay', 'overflow', 1, true, null]) {
+        const s = extractRequestSettings({ subscriptions: { claude: { backend }, codex: { backend }, gemini: { backend } } });
+        assert.equal(s.claude.backend, 'subscription');
+        assert.equal(s.codex.backend, 'subscription');
+        assert.equal(s.gemini.backend, 'subscription');
+    }
+    // Top-level fields never select a backend.
+    const t = extractRequestSettings({ backend: 'api', claude: { backend: 'api' } });
+    assert.equal(t.claude.backend, 'subscription');
+});
+
+test('settings module no longer exports the unused BACKENDS list', async () => {
+    const mod = await import('../lib/settings.js');
+    assert.equal('BACKENDS' in mod, false);
+    assert.equal(mod.CODEX_EFFORTS.includes('ultra'), true, 'ultra kept for old saved panels');
+});

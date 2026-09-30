@@ -24,17 +24,9 @@
     line-height: 1.35;
 }
 
-.st-subs-row {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    margin-top: 6px;
-}
-
-.st-subs-row > select,
-.st-subs-row > input {
-    flex: 1 1 auto;
-    min-width: 0;
+.st-subs-invalid {
+    outline: 1px solid #d9534f;
+    outline: 1px solid color-mix(in srgb, #f44336 60%, var(--SmartThemeBodyColor, currentColor));
 }
 
 .st-subs-provider {
@@ -51,13 +43,14 @@
     cursor: pointer;
 }
 
+/* Badge text keeps the theme's body colour; the tone is carried by the tint. */
 .st-subs-badge {
     font-size: 0.75em;
     padding: 1px 6px;
     border-radius: 8px;
     background: color-mix(in srgb, var(--SmartThemeBodyColor, #888) 18%, transparent);
-    opacity: 0.85;
     margin-left: auto;
+    white-space: nowrap;
 }
 
 .st-subs-badge.ok {
@@ -81,6 +74,11 @@
 
 .st-subs-status-refresh {
     padding: 4px 8px;
+}
+
+.st-subs-status-refresh.st-subs-busy {
+    opacity: 0.5;
+    cursor: progress;
 }
 
 .st-subs-status-box {
@@ -108,23 +106,36 @@
     margin-top: 2px;
 }
 
+.st-subs-status-row > span:first-child {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .st-subs-status-row > span:last-child {
     text-align: right;
     word-break: break-word;
 }
 
+/*
+ * Status tones are mixed with the theme's body colour, so they darken on
+ * light themes and lighten on dark ones (readable contrast on both). The
+ * plain hex line is the fallback for browsers without color-mix().
+ */
 .st-subs-tag-ok {
     color: #4caf50;
+    color: color-mix(in srgb, #4caf50 50%, var(--SmartThemeBodyColor, currentColor));
     font-weight: bold;
 }
 
 .st-subs-tag-warn {
     color: #ff9800;
+    color: color-mix(in srgb, #ff9800 45%, var(--SmartThemeBodyColor, currentColor));
     font-weight: bold;
 }
 
 .st-subs-tag-err {
     color: #f44336;
+    color: color-mix(in srgb, #f44336 55%, var(--SmartThemeBodyColor, currentColor));
     font-weight: bold;
 }
 
@@ -164,5 +175,14 @@
     padding: 6px 8px;
     border-radius: 4px;
     background: rgba(255, 152, 0, 0.18);
+    font-size: 0.9em;
+}
+
+.st-subs-notice-dismiss {
+    display: block;
+    width: fit-content;
+    white-space: nowrap;
+    margin: 6px 0 0 auto;
+    padding: 2px 10px;
     font-size: 0.9em;
 }
