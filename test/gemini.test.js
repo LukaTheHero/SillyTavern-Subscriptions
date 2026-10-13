@@ -10,9 +10,10 @@ import { join } from 'node:path';
 import {
     buildAgyEnv, agyBilling, compareVersions, isolationSupport, parseAgyError, agyErrorStatus, agentLoadState,
     lastUpstreamFailure, ensureChatAgent, runAgy, CHAT_AGENT_MD, CHAT_AGENT_NAME,
+    AGY_MAX_STDIN_BYTES, AGY_MAX_TOTAL_BYTES, escapeAgentMarkdownSection, buildChatAgentMd,
 } from '../lib/gemini/agy.js';
 import { resolveGeminiModel, listGeminiModels, geminiCatalog, geminiCatalogSource, agyModelId } from '../lib/gemini/models.js';
-import { discoverGeminiApiCredentials, runGeminiChat, isOtherVendorKey } from '../lib/gemini/chat.js';
+import { discoverGeminiApiCredentials, runGeminiChat, isOtherVendorKey, foldConversationForAgy } from '../lib/gemini/chat.js';
 import { geminiStatus } from '../lib/gemini/status.js';
 import { isAbortError } from '../lib/common/abort.js';
 
@@ -20,6 +21,7 @@ import { isAbortError } from '../lib/common/abort.js';
 
 const FAKE_AGY = String.raw`
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 const args = process.argv.slice(2);
 const env = process.env;
 if (args.includes('--version')) { console.log(env.FAKE_AGY_VERSION || '1.2.14'); process.exit(0); }
@@ -45,7 +47,9 @@ if (log) {
         : 'I conversation_manager.go:512] Starting new conversation (agent=true)\n');
 }
 if (env.FAKE_AGY_DUMP) {
-    writeFileSync(env.FAKE_AGY_DUMP, JSON.stringify({ pid: process.pid, args, prompt, cwd: process.cwd(), envKeys: Object.keys(env).map((k) => k.toUpperCase()) }));
+    let agentMd = null;
+    try { agentMd = readFileSync(join(process.cwd(), '.agents', 'agents', agent, 'agent.md'), 'utf8'); } catch {}
+    writeFileSync(env.FAKE_AGY_DUMP, JSON.stringify({ pid: process.pid, args, prompt, agentMd, cwd: process.cwd(), envKeys: Object.keys(env).map((k) => k.toUpperCase()) }));
 }
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 const step = (i, o) => out({ event: 'step_update', step_update: { conversation_id: 'c', step_index: i, ...o } });
@@ -590,3 +594,94 @@ test('geminiStatus reports the backends contract and billing mode', async () => 
         setSettings(null);
     }
 });
+
+// ── Long-context partitioning (agy 192 KB STDIN truncation fix) ──
+
+test('escapeAgentMarkdownSection and buildChatAgentMd demote single-# headings so agy never splits or drops sections', () => {
+    const raw = '# Top Heading\n\n  # Indented Heading\n#\n## Level Two\n### Level Three\n#hashtag stays\nPlain line';
+    const escaped = escapeAgentMarkdownSection(raw);
+    assert.equal(escaped, '## Top Heading\n\n  ## Indented Heading\n##\n## Level Two\n### Level Three\n#hashtag stays\nPlain line');
+
+    const md = buildChatAgentMd({
+        name: 'st-subscriptions-chat-test',
+        sections: [
+            { heading: 'System_Instructions', content: '# Character Card\nElaina is a vampire.' },
+            { heading: 'Earlier_Conversation_History', content: 'User: #1 hello\n\nAssistant: # solo hash\n#' },
+        ],
+    });
+    assert.match(md, /^---\nname: st-subscriptions-chat-test\n/);
+    // Top-level headings in agent.md must only be Role, Rules, System_Instructions, Earlier_Conversation_History.
+    const topHeadings = [...md.matchAll(/^[ \t]*#[ \t]+(.+)$/gm)].map((m) => m[1]);
+    assert.deepEqual(topHeadings, ['Role', 'Rules', 'System_Instructions', 'Earlier_Conversation_History']);
+    assert.match(md, /## Character Card\nElaina is a vampire\./);
+});
+
+test('runGeminiChat partitions >192 KB roleplay chats across agent.md and STDIN so recent turns and current message are never truncated', async () => {
+    resetEnv();
+    // Reproduce the user's failure geometry: ~40 KB system prompt + ~215 KB across 100 history turns + ~12 KB current turn (~267 KB total).
+    const systemPrompt = `# Role Preamble\nYou are Elaina.\n\n# Story Context\n${'Lorebook entry and character card details. '.repeat(950)}`;
+    const historyTurns = [];
+    for (let i = 1; i <= 100; i++) {
+        const role = i % 2 === 1 ? 'user' : 'assistant';
+        const body = `TURN_${i}_START ${'Roleplay dialogue and scene prose for this turn. '.repeat(42)} TURN_${i}_END`;
+        historyTurns.push({ role, content: body });
+    }
+    const latestUserTurn = `CURRENT_TURN_SENTINEL_START ${'Current scene action and dialogue from the user. '.repeat(240)} CURRENT_TURN_SENTINEL_END`;
+    const messages = [{ role: 'system', content: systemPrompt }, ...historyTurns, { role: 'user', content: latestUserTurn }];
+
+    const folded = foldConversationForAgy(messages);
+    assert.equal(folded.spilledToAgent, true);
+    assert.equal(folded.droppedHistoryTurns, 0, 'all 100 history turns fit across systemInstruction + STDIN without dropping any');
+    assert.ok(Buffer.byteLength(folded.prompt, 'utf8') <= AGY_MAX_STDIN_BYTES, `STDIN (${Buffer.byteLength(folded.prompt, 'utf8')} bytes) must stay <= ${AGY_MAX_STDIN_BYTES} bytes (< 192,000)`);
+    assert.match(folded.prompt, /CURRENT_TURN_SENTINEL_START[\s\S]*CURRENT_TURN_SENTINEL_END/);
+    assert.match(folded.prompt, /TURN_100_START[\s\S]*TURN_100_END/);
+
+    const w = fakeWriter();
+    await runGeminiChat({ req: null, messages, model: 'gemini-4-argon-high', settings: baseSettings(), writer: w, signal: new AbortController().signal });
+    assert.equal(w.failed, null);
+    assert.equal(w.text, 'Hello');
+
+    const d = dump();
+    const agentArg = d.args[d.args.indexOf('--agent') + 1];
+    assert.match(agentArg, /^st-subscriptions-chat-\d+-\d+-\d+$/, 'uses an isolated per-run agent name');
+    assert.ok(Buffer.byteLength(d.prompt, 'utf8') <= AGY_MAX_STDIN_BYTES);
+    assert.ok(d.prompt.includes('CURRENT_TURN_SENTINEL_END'), 'the end of the current user turn is intact on STDIN');
+    assert.ok(d.prompt.includes('TURN_100_END'), 'the most recent history turn is intact on STDIN');
+    assert.ok(d.agentMd && d.agentMd.includes('# System_Instructions'), 'system instructions are in the per-run agent.md');
+    assert.ok(d.agentMd.includes('## Role Preamble'), 'single-# headings inside system instructions are escaped in agent.md');
+    assert.ok(d.agentMd.includes('# Earlier_Conversation_History'), 'older history turns are in the per-run agent.md');
+    assert.ok(d.agentMd.includes('TURN_1_START'), 'the earliest history turn is preserved in agent.md');
+
+    // Verify exact chronological continuity from agent.md's Earlier_Conversation_History into STDIN's <conversation_history>.
+    const earlierMatches = [...d.agentMd.matchAll(/TURN_(\d+)_START/g)].map((m) => Number(m[1]));
+    const recentMatches = [...d.prompt.matchAll(/TURN_(\d+)_START/g)].map((m) => Number(m[1]));
+    assert.equal(earlierMatches[0], 1);
+    assert.equal(recentMatches[recentMatches.length - 1], 100);
+    assert.deepEqual([...earlierMatches, ...recentMatches], Array.from({ length: 100 }, (_, i) => i + 1), 'every turn 1..100 appears once in strict chronological order');
+
+    assert.equal(existsSync(join(d.cwd, '.agents', 'agents', agentArg)), false, 'the per-run agent directory is cleaned up after the turn completes');
+});
+
+test('foldConversationForAgy trims oldest history turns when a mega-conversation exceeds AGY_MAX_TOTAL_BYTES', () => {
+    const systemPrompt = `SYSTEM_ANCHOR ${'System instructions text. '.repeat(1200)}`;
+    const historyTurns = [];
+    for (let i = 1; i <= 200; i++) {
+        const role = i % 2 === 1 ? 'user' : 'assistant';
+        historyTurns.push({ role, content: `MEGA_TURN_${i} ${'Long roleplay history paragraph. '.repeat(140)}` });
+    }
+    const finalTurn = 'MEGA_FINAL_USER_TURN_ANCHOR';
+    const messages = [{ role: 'system', content: systemPrompt }, ...historyTurns, { role: 'user', content: finalTurn }];
+
+    const res = foldConversationForAgy(messages);
+    assert.equal(res.spilledToAgent, true);
+    assert.ok(res.droppedHistoryTurns > 0, 'oldest turns were dropped to stay within the total context ceiling');
+    const builtAgent = buildChatAgentMd({ name: `${CHAT_AGENT_NAME}-99999-9999999999999-99`, sections: res.agentSections });
+    const totalBytes = Buffer.byteLength(builtAgent, 'utf8') + Buffer.byteLength(res.prompt, 'utf8');
+    assert.ok(Buffer.byteLength(res.prompt, 'utf8') <= AGY_MAX_STDIN_BYTES);
+    assert.ok(totalBytes <= AGY_MAX_TOTAL_BYTES, `totalBytes (${totalBytes}) must stay <= ${AGY_MAX_TOTAL_BYTES}`);
+    assert.ok(builtAgent.includes('SYSTEM_ANCHOR'), 'system prompt is preserved');
+    assert.ok(!builtAgent.includes('MEGA_TURN_1 '), 'oldest history turn was dropped');
+    assert.ok(res.prompt.includes('MEGA_TURN_200 '), 'most recent history turn is preserved');
+    assert.ok(res.prompt.includes('MEGA_FINAL_USER_TURN_ANCHOR'), 'current user turn is preserved');
+});
+

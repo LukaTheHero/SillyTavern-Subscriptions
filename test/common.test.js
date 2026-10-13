@@ -77,6 +77,31 @@ test('foldConversation renders labelled history with the system prompt optional'
     assert.equal(extractSystemText(msgs), 'You are a pirate.');
 });
 
+test('foldConversation places Depth-0 post-history system prompts before the final User turn so the latest user message stays at the end', () => {
+    const msgs = [
+        { role: 'system', content: 'Main system card' },
+        { role: 'user', content: 'Opening line' },
+        { role: 'assistant', content: 'Opening reply' },
+        { role: 'system', content: '[Author Note: tense atmosphere]' },
+        { role: 'user', content: 'Earlier user line' },
+        { role: 'assistant', content: 'Earlier assistant reply' },
+        { role: 'user', content: 'Elaina: Latest action right here!' },
+        { role: 'system', content: '<knowledge_boundaries>\nDense rule 1\n</knowledge_boundaries>' },
+        { role: 'system', content: '<fiction_contract>\nDense rule 2\n</fiction_contract>' },
+    ];
+    const folded = foldConversation(msgs, { includeSystem: true });
+    // In-history system note is not attributed to User:
+    assert.ok(folded.includes('[Author Note: tense atmosphere]\n\nUser: Earlier user line'));
+    assert.ok(!folded.includes('User: [Author Note: tense atmosphere]'));
+    // Post-history instructions precede the final User: message so the user's actual turn is last before Reply as Assistant only
+    const postIdx = folded.indexOf('<post_history_instructions>');
+    const userIdx = folded.indexOf('User: Elaina: Latest action right here!');
+    const replyIdx = folded.indexOf('Reply as Assistant only');
+    assert.ok(postIdx !== -1 && userIdx !== -1 && replyIdx !== -1);
+    assert.ok(postIdx < userIdx, '<post_history_instructions> should come before the final User turn');
+    assert.ok(userIdx < replyIdx, 'the final User turn should come immediately before Reply as Assistant only');
+});
+
 test('imagePartsOf parses data URLs and http links', () => {
     const parts = imagePartsOf([
         { type: 'text', text: 'look' },
